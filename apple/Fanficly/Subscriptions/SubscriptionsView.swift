@@ -51,18 +51,23 @@ struct SubscriptionsView: View {
     @ViewBuilder
     private func subscriptionRow(_ sub: SubscriptionRecord) -> some View {
         if sub.kind == "work", let workId = workId(from: sub) {
-            // Tap a work subscription to open the fic. Render the same
-            // LibraryRow when we have the work cached locally — the
-            // subscription record alone only carries title + chapter count.
-            NavigationLink(value: AO3WorkSummary.stub(id: workId, title: sub.displayName)) {
+            // Tap a work subscription to open the fic: a work saved in the
+            // Library opens its saved copy, like the Library does, so offline
+            // text reads offline (#175); any other opens the live work page.
+            // A new-chapter alert still opens the live page (RootView's
+            // NotificationRoute), since the saved copy lacks that chapter.
+            // Render the same LibraryRow when we have the work cached
+            // locally — the subscription record alone only carries title +
+            // chapter count.
+            NavigationLink(value: SavedFirstWorkRoute(workId: workId)) {
                 if let work = cachedWork(ao3Id: workId) {
-                    LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: workId) != nil)
+                    LibraryRow(work: work, downloaded: WorkPersistence.isDownloaded(work))
                 } else {
                     SubscriptionRow(sub: sub)
                 }
             }
             .contextMenu {
-                NavigationLink(value: AO3WorkSummary.stub(id: workId, title: sub.displayName)) {
+                NavigationLink(value: SavedFirstWorkRoute(workId: workId)) {
                     Label("Open", systemImage: "book")
                 }
                 openOnAO3Button(ao3Page(for: sub))
@@ -118,8 +123,8 @@ struct SubscriptionsView: View {
     private func followedWorkRow(_ work: Work) -> some View {
         // Opens the saved copy, as the Library does (offline too).
         NavigationLink(value: work) {
-            LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil,
-                       checkedAt: work.lastCheckedAt)
+            LibraryRow(work: work, downloaded: WorkPersistence.isDownloaded(work),
+                       checkStatus: work.checkStatus)
         }
         .swipeActions(edge: .trailing) {
             Button {
@@ -200,8 +205,7 @@ struct SubscriptionsView: View {
     }
 
     private func cachedWork(ao3Id: Int) -> Work? {
-        let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == ao3Id })
-        return (try? context.fetch(descriptor))?.first
+        WorkPersistence.savedWork(ao3Id: ao3Id, in: context)
     }
 
     private func workId(from sub: SubscriptionRecord) -> Int? {
@@ -233,7 +237,7 @@ struct SubscriptionsView: View {
             NavigationLink {
                 LoginView()
             } label: {
-                Text("Open Settings → AO3 Login").font(.callout)
+                Text("Log In to AO3").font(.callout)
             }
         }
     }
@@ -336,6 +340,7 @@ struct SubscriptionsView: View {
                 syncIfNew()
             }
         }
+        .savedFirstWorkDestination()
         .navigationDestination(for: Work.self) { SavedWorkReader(work: $0) }
         .workAndAuthorDestinations()
         .sheet(item: $browserURL) { item in
@@ -350,9 +355,14 @@ struct SubscriptionsView: View {
                         if isBusy { ProgressView() } else { Image(systemName: "arrow.clockwise") }
                     }
                     .disabled(isBusy)
+                    .keyboardShortcut(KeyboardShortcut.phoneOnly("r"))
                     .accessibilityLabel("Refresh subscriptions")
                 }
             }
+        }
+        // ⌘R (F5 on Windows): View → Refresh on iPad and the Mac.
+        .menuAction(\.refreshList, enabled: auth.username != nil && !isRefreshing) {
+            Task { await refresh() }
         }
         .task {
             // Not in demo mode, so screenshot and UI-test runs never get the alert.
@@ -415,10 +425,15 @@ struct SubscriptionsView: View {
         // The per-work and per-author checks are throttled (1 req/sec) and
         // only feed notifications, so run them after the list is showing.
         // Followed works and authors need no login (#186).
+        // Skipped while a full check runs: it covers these works too, and
+        // two at once could alert twice for the same chapter.
         isChecking = true
-        let chapters = await poller.checkWorksForNewChapters()
-        let newWorks = await poller.checkFollowedAuthors()
+        let counts = await BackgroundRefresh.exclusive {
+            (await poller.checkWorksForNewChapters(), await poller.checkFollowedAuthors())
+        }
         isChecking = false
+        guard let counts else { return }
+        let (chapters, newWorks) = counts
         // Cancelled, or another account's: the results aren't this one's to show.
         guard !Task.isCancelled, auth.username == username, !poller.accountChanged else {
             syncIfNew()
@@ -450,6 +465,22 @@ struct SubscriptionsView: View {
     }
 }
 
+/// A row's "checked … ago", or why checks keep failing (#195).
+struct CheckStatusText: View {
+    let status: CheckStatus
+
+    var body: some View {
+        switch status {
+        case .checked(let date):
+            Text("checked \(date, style: .relative) ago")
+                .font(.caption).foregroundStyle(.secondary)
+        case .failing(let failure):
+            Label(CheckStatus.message(for: failure), systemImage: "exclamationmark.triangle")
+                .font(.caption).foregroundStyle(.orange)
+        }
+    }
+}
+
 /// Visually mirrors `LibraryRow` so subscriptions and the library feel like
 /// the same list. We don't have full work metadata for uncached subs (no
 /// fandom/rating/wordcount), so those rows show kind + chapter/checked stats
@@ -475,9 +506,8 @@ struct SubscriptionRow: View {
                     Text("\(count) chapter\(count == 1 ? "" : "s")")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                if let checked = sub.lastCheckedAt {
-                    Text("checked \(checked, style: .relative) ago")
-                        .font(.caption).foregroundStyle(.secondary)
+                if let status = sub.checkStatus {
+                    CheckStatusText(status: status)
                 }
             }
         }
@@ -541,7 +571,7 @@ struct BookmarksView: View {
                     Text("Your AO3 bookmarks show here once you log in, including private ones.")
                 } actions: {
                     NavigationLink { LoginView() } label: {
-                        Text("Open Settings → AO3 Login").font(.callout)
+                        Text("Log In to AO3").font(.callout)
                     }
                 }
             } else if isLoading && works.isEmpty {
@@ -595,9 +625,14 @@ struct BookmarksView: View {
                         if isLoading { ProgressView() } else { Image(systemName: "arrow.clockwise") }
                     }
                     .disabled(isLoading)
+                    .keyboardShortcut(KeyboardShortcut.phoneOnly("r"))
                     .accessibilityLabel("Refresh bookmarks")
                 }
             }
+        }
+        // ⌘R (F5 on Windows): View → Refresh on iPad and the Mac.
+        .menuAction(\.refreshList, enabled: auth.username != nil && !isLoading) {
+            Task { await refresh() }
         }
         .task { await loadFirst() }
         // Another account (or none): the list on screen isn't theirs (#159).
@@ -802,7 +837,7 @@ struct ReadingListView: View {
                     Text(list.loginPrompt)
                 } actions: {
                     NavigationLink { LoginView() } label: {
-                        Text("Open Settings → AO3 Login").font(.callout)
+                        Text("Log In to AO3").font(.callout)
                     }
                 }
             } else if isLoading && works.isEmpty {
@@ -856,9 +891,14 @@ struct ReadingListView: View {
                         if isLoading { ProgressView() } else { Image(systemName: "arrow.clockwise") }
                     }
                     .disabled(isLoading)
+                    .keyboardShortcut(KeyboardShortcut.phoneOnly("r"))
                     .accessibilityLabel("Refresh \(list.title)")
                 }
             }
+        }
+        // ⌘R (F5 on Windows): View → Refresh on iPad and the Mac.
+        .menuAction(\.refreshList, enabled: auth.username != nil && !isLoading) {
+            Task { await refresh() }
         }
         .task { await loadFirst() }
         // Another account (or none): the list on screen isn't theirs (#159).

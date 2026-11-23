@@ -53,9 +53,10 @@ public sealed record WidgetWorkSource
 /// <summary>An AO3 subscription record (Swift <c>SubscriptionRecord</c>).</summary>
 /// <param name="Key">"work:123", "series:9", "user:name".</param>
 /// <param name="Kind">"work", "series" or "user".</param>
+/// <param name="UpdatedAt">AO3's Updated date from the last good check (#197).</param>
 public sealed record WidgetSubscriptionSource(
     string Key, string Kind, string DisplayName, string AuthorName,
-    int? LastSeenChapterCount, DateTimeOffset? LastCheckedAt);
+    int? LastSeenChapterCount, DateTimeOffset? LastCheckedAt, DateTimeOffset? UpdatedAt = null);
 
 /// <summary>Everything <see cref="WidgetDataStore.UpdateAll"/> needs, read from
 /// the library database.</summary>
@@ -160,6 +161,10 @@ public static class WidgetDataStore
     public static IReadOnlyList<WidgetFolderShortcut> BuildFolders(IEnumerable<WidgetFolderSource> folders) =>
         folders.OrderByDescending(f => f.CreatedAt).Select(f => new WidgetFolderShortcut(f.Name, f.WorkCount)).ToList();
 
+    /// <summary>What a subscription not yet checked sorts by: Swift's
+    /// <c>Date.distantPast</c> (0001-01-01).</summary>
+    internal static readonly DateTimeOffset NeverUpdated = new(1, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
     /// <summary>Locally followed works, then AO3 work subscriptions not already
     /// listed, most recently updated first; at most 20.</summary>
     public static IReadOnlyList<WidgetSubscriptionUpdate> BuildSubscriptions(
@@ -176,7 +181,10 @@ public static class WidgetDataStore
             if (parts.Length != 2 || !TryParseInt(parts[1], out var workId)) continue;
             // Avoid duplicating a work that's already in the followed list.
             if (list.Any(u => u.WorkId == workId)) continue;
-            list.Add(new WidgetSubscriptionUpdate(workId, s.DisplayName, s.AuthorName, s.LastSeenChapterCount ?? 0, false, s.LastCheckedAt ?? now));
+            // AO3's Updated date, not when it was polled: a check isn't an
+            // update (#197). One never checked sorts last.
+            list.Add(new WidgetSubscriptionUpdate(workId, s.DisplayName, s.AuthorName, s.LastSeenChapterCount ?? 0, false,
+                                                  s.UpdatedAt ?? NeverUpdated));
         }
         return list.OrderByDescending(u => u.UpdatedAt).Take(ListLimit).ToList();
     }

@@ -163,12 +163,58 @@ internal sealed partial class ReaderView
         var index = EffectiveChapter;
         var chapter = ChapterAt(index);
         string subtitle;
-        if (_chapters.Count > 1) subtitle = ChapterIndicatorLabel(chapter, index, _chapters.Count);
+        // Opened on one chapter while the rest loads (#177): say how many there
+        // are, and that they're coming, since the chapter list isn't there yet.
+        if (_isLoadingRest && IsPartial) subtitle = $"Chapter {index} of {_totalChapters} · loading the other chapters…";
+        // Still partial (the load failed): keep "of m" even beside a chapter title.
+        else if (IsPartial) subtitle = chapter is { Title.Length: > 0 } ? $"Chapter {index} of {_totalChapters} · {chapter.Title}" : $"Chapter {index} of {_totalChapters}";
+        else if (_chapters.Count > 1) subtitle = ChapterIndicatorLabel(chapter, index, _totalChapters);
         else subtitle = chapter?.Title ?? "";
         _headerChapter.Text = subtitle;
         _headerChapter.Visibility = subtitle.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         UpdateIndicator();
         UpdateFooter();
+    }
+
+    // MARK: - The rest of the work failed to load (#177)
+
+    private InfoBar? _restFailedBar;
+
+    /// <summary>Says the other chapters didn't load, over the bottom of the story
+    /// (an overlay, so pages aren't laid out again), with Try again. The open
+    /// chapter stays readable; closing the bar leaves the reader as it is.</summary>
+    public void ShowRestFailed(Action retry)
+    {
+        HideRestFailed();
+        IsLoadingRest = false;
+        var tryAgain = UI.UI.Button("Try again", () =>
+        {
+            HideRestFailed();
+            retry();
+        });
+        AutomationProperties.SetAutomationId(tryAgain, "reader.loadRest.retry");
+        var bar = UI.UI.Banner(
+            "Couldn't load the other chapters",
+            $"AO3 didn't send the rest of this work, so only chapter {EffectiveChapter} of {_totalChapters} is here.",
+            InfoBarSeverity.Warning);
+        bar.ActionButton = tryAgain;
+        bar.MaxWidth = 640;
+        bar.Margin = new Thickness(16, 0, 16, 16);
+        bar.HorizontalAlignment = HorizontalAlignment.Stretch;
+        bar.VerticalAlignment = VerticalAlignment.Bottom;
+        AutomationProperties.SetAutomationId(bar, "reader.loadRest.failed");
+        bar.Closed += (_, _) => { if (_restFailedBar == bar) HideRestFailed(); };
+        _restFailedBar = bar;
+        Root.Children.Add(bar.Row(2));
+        // Not over another screen (Comments pushed on top, say).
+        if (_visible) MainWindow.Current.Announce($"{bar.Title}. {bar.Message}");
+    }
+
+    private void HideRestFailed()
+    {
+        if (_restFailedBar is not { } bar) return;
+        _restFailedBar = null;
+        Root.Children.Remove(bar);
     }
 
     // MARK: - Chapter indicator (continuous scroll)
@@ -205,10 +251,10 @@ internal sealed partial class ReaderView
     {
         if (_indicatorLabel is null) return;
         var index = _visibleChapter;
-        var label = ChapterIndicatorLabel(ChapterAt(index), index, _chapters.Count);
+        var label = ChapterIndicatorLabel(ChapterAt(index), index, _totalChapters);
         _indicatorLabel.Text = label;
-        _indicatorCount.Text = $"{index}/{_chapters.Count}";
-        AutomationProperties.SetName(_indicatorLabel, $"{label}, chapter {index} of {_chapters.Count}");
+        _indicatorCount.Text = $"{index}/{_totalChapters}";
+        AutomationProperties.SetName(_indicatorLabel, $"{label}, chapter {index} of {_totalChapters}");
     }
 
     // MARK: - Page footer (page-by-page)
@@ -269,7 +315,7 @@ internal sealed partial class ReaderView
         var pageLabel = onScreen?.Right is { } right
             ? $"Pages {first}–{right.PageIndex + 1} of {total}"
             : $"Page {first} of {total}";
-        var label = ChapterIndicatorLabel(ChapterAt(current.ChapterIndex), current.ChapterIndex, _chapters.Count);
+        var label = ChapterIndicatorLabel(ChapterAt(current.ChapterIndex), current.ChapterIndex, _totalChapters);
         _footerLabel.Text = label;
         _footerPages.Text = pageLabel;
         UpdateFooterNotice(current, onScreen?.Right ?? onScreen?.Left ?? current);
@@ -692,8 +738,13 @@ internal sealed partial class ReaderView
         MainWindow.Current.Announce($"Profile {profile.Name} applied");
     }
 
-    private static void DeleteProfile(string name)
+    /// <summary>Deletes at once (the deletion syncs as a tombstone) and offers
+    /// Undo (#169), which saves the profile again, newer than its tombstone, and
+    /// makes it active again if it was. <paramref name="after"/> runs after either.</summary>
+    private static void DeleteProfile(string name, Action? after = null)
     {
+        var deleted = Profiles.FirstOrDefault(p => p.Name == name);
+        var wasActive = ReaderPrefs.ActiveProfileName == name;
         var list = Profiles.ToList();
         list.RemoveAll(p => p.Name == name);
         if (ReaderPrefs.ActiveProfileName == name)
@@ -703,7 +754,27 @@ internal sealed partial class ReaderView
         }
         SaveProfiles(list);
         QueueBackup();
-        MainWindow.Current.Announce($"Deleted profile {name}");
+        after?.Invoke();
+        if (deleted is null) return;
+        UndoQueue.Shared.Offer($"Deleted profile “{name}”", () =>
+        {
+            RestoreProfile(deleted, wasActive);
+            after?.Invoke();
+        });
+    }
+
+    private static void RestoreProfile(ReaderProfile profile, bool makeActive)
+    {
+        var list = Profiles.ToList();
+        if (list.Any(p => string.Equals(p.Name, profile.Name, StringComparison.CurrentCultureIgnoreCase))) return;
+        list.Add(profile);
+        SaveProfiles(list);
+        if (makeActive)
+        {
+            ReaderPrefs.ActiveProfileName = profile.Name;
+            SelectProfile(profile);
+        }
+        QueueBackup();
     }
 
     private static void OverwriteProfile(string name)

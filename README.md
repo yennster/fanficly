@@ -74,7 +74,7 @@ A sidebar beside every screen, two-page spreads in landscape, and page turns fro
 | :---: | :---: |
 | <img src="apple/screenshots/final/mac/01-search-plain-english.png" width="400" alt="Search on the Mac"> | <img src="apple/screenshots/final/mac/03-customize-every-page.png" width="400" alt="Reader settings on the Mac"> |
 
-A resizable window, ⌘1–9 for the tabs, ⌘+ / ⌘− for the story's text size, interface zoom from the View menu (⇧⌘+ / ⇧⌘−, ⌘0), and arrow keys, Page Up / Page Down or a Bluetooth page turner to turn pages.
+A resizable window, ⌘1–9 for the tabs, ⌘+ / ⌘− for the story's text size, interface zoom from the View menu (⇧⌘+ / ⇧⌘−, ⌘0), arrow keys, Page Up / Page Down or a Bluetooth page turner to turn pages, ⌘← / ⌘→ for chapters, ⌘L to listen, ⌘F to search and ⌘R to refresh.
 
 **Docs:** [the Apple app guide](apple/README.md) · [all Mac screenshots](apple/screenshots/final/mac/)
 
@@ -152,7 +152,7 @@ Yes. Follow a work or an author and Fanficly checks in the background, then send
 
 ### Does Fanficly collect my data?
 
-No. There is no Fanficly account or server, no analytics, no ads and no tracking. Your library, reading progress and settings stay on your devices. On Apple devices, reader profiles and your last-read position sync through your own iCloud, and you can turn on a full library backup there too. On Windows, sync is off until you pick a folder, such as OneDrive or any folder you already sync.
+No. There is no Fanficly account or server, no analytics, no ads and no tracking. Your library, reading progress and settings stay on your devices. On Apple devices, reader profiles, your last-read position and your reading-streak days sync through your own iCloud, and you can turn on a full library backup there too. On Windows, sync is off until you pick a folder, such as OneDrive or any folder you already sync.
 
 ### How does Fanficly get stories from AO3?
 

@@ -79,10 +79,10 @@ internal static class LibraryActions
             if (EpubImport.IsLocalWork(work.Ao3Id)) { }
             else if (Downloading.Contains(work.Ao3Id))
                 flyout.Items.Add(new MenuFlyoutItem { Text = "Downloading…", IsEnabled = false, Icon = Symbols.Icon("arrow.down.circle") });
-            else if (WorkPersistence.EpubPath(work.Ao3Id) is not null)
+            else if (WorkPersistence.IsDownloaded(work))
                 flyout.Items.Add(Item("Remove Download", "xmark.circle", () => AfterMenu(() => RemoveDownloadAsync(work))));
             else
-                flyout.Items.Add(Item("Download for Offline", "arrow.down.circle", () => _ = DownloadAsync(work)));
+                flyout.Items.Add(Item("Download", "arrow.down.circle", () => _ = DownloadAsync(work)));
             if (!EpubImport.IsLocalWork(work.Ao3Id))
                 flyout.Items.Add(Item("Share Story...", "square.and.arrow.up", () => ShareService.ShareWork(work.Ao3Id, work.Title)));
             flyout.Items.Add(new MenuFlyoutSeparator());
@@ -173,22 +173,28 @@ internal static class LibraryActions
     }
 
     /// <summary>Removes the work (and its EPUB) from the library.</summary>
-    public static void Delete(Work work)
-    {
-        if (!work.IsInserted) return;
-        var title = work.Title;
-        WorkPersistence.DeleteWork(work, Store);
-        FilesChanged?.Invoke();
-        MainWindow.Current?.Announce($"Deleted {title} from Library");
-    }
+    /// <summary>The works not waiting to be deleted behind the Undo bar (#169).</summary>
+    public static List<Work> Visible(IEnumerable<Work> works) =>
+        works.Where(w => !UndoQueue.Shared.IsPending(UndoQueue.Keys.Work(w.Ao3Id))).ToList();
+
+    /// <summary>Waits behind the Undo bar (#169): the delete takes the offline
+    /// text, EPUB, note, tags and folder links, and AO3 may no longer have it.
+    /// The bar announces it to Narrator.</summary>
+    public static void Delete(Work work) => Delete([work]);
 
     public static void Delete(IEnumerable<Work> works)
     {
         var list = works.Where(w => w.IsInserted).ToList();
         if (list.Count == 0) return;
-        foreach (var w in list) WorkPersistence.DeleteWork(w, Store);
-        FilesChanged?.Invoke();
-        MainWindow.Current?.Announce(list.Count == 1 ? $"Deleted {list[0].Title} from Library" : $"Deleted {list.Count} stories from Library");
+        var message = list.Count == 1 ? $"Deleted “{list[0].Title}”" : $"Deleted {list.Count} stories";
+        UndoQueue.Shared.Schedule(message, list.Select(w => UndoQueue.Keys.Work(w.Ao3Id)),
+            LibraryEntityKinds.Works | LibraryEntityKinds.Folders, () =>
+            {
+                var still = list.Where(w => w.IsInserted).ToList();
+                if (still.Count == 0) return;
+                foreach (var w in still) WorkPersistence.DeleteWork(w, Store);
+                FilesChanged?.Invoke();
+            });
     }
 
     public static void RemoveFromFolder(IReadOnlyList<Work> works, CustomFolder folder)
@@ -233,11 +239,11 @@ internal static class LibraryActions
             }
             fetchingEpub = true;
             await AppHost.Client.DownloadEpubAsync(id);
-            MainWindow.Current?.ShowMessage("Downloaded for offline reading", title);
+            MainWindow.Current?.ShowMessage("Downloaded", title);
         }
         catch (Exception e)
         {
-            MainWindow.Current?.ShowMessage("Couldn't download for offline", DownloadFailureWording.For(textSaved, fetchingEpub, e.Message),
+            MainWindow.Current?.ShowMessage("Download failed", DownloadFailureWording.For(textSaved, fetchingEpub, e.Message),
                 InfoBarSeverity.Error);
         }
         finally

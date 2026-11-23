@@ -2,6 +2,43 @@ import SwiftUI
 import SwiftData
 import UIKit // UIAccessibility announcements
 
+/// Opens a story the way the Library does when it's saved there (the saved
+/// reader: offline text, or fetched on demand for a bookmark-only save), and
+/// the live work page when it isn't. Recently Viewed and Subscriptions push
+/// it (#175), so a downloaded story opens offline from them too. Resolved when
+/// the screen is built, like `ResumeWorkRoute`, so a story saved or removed
+/// since the list drew opens the right way. Notification routes stay live on
+/// purpose: a saved copy lacks the new chapter the alert is about.
+struct SavedFirstWorkRoute: Hashable {
+    let workId: Int
+}
+
+extension View {
+    /// The destination for `SavedFirstWorkRoute`. Apply once per
+    /// `NavigationStack` root that pushes the route.
+    func savedFirstWorkDestination() -> some View {
+        navigationDestination(for: SavedFirstWorkRoute.self) { route in
+            SavedFirstWorkView(workId: route.workId)
+        }
+    }
+}
+
+private struct SavedFirstWorkView: View {
+    @Environment(\.modelContext) private var context
+    let workId: Int
+
+    var body: some View {
+        // A story waiting behind the Library's Undo toast is about to be
+        // deleted: the reader would be left on a deleted Work, so it opens live.
+        if !UndoCenter.shared.isPending(UndoCenter.Key.work(workId)),
+           let work = WorkPersistence.savedWork(ao3Id: workId, in: context) {
+            SavedWorkReader(work: work)
+        } else {
+            WorkDetailView(workId: workId)
+        }
+    }
+}
+
 /// Reader for a work in the Library.
 /// - Downloaded works (chapters saved on device) read fully offline.
 /// - Bookmarked-only works have no saved chapter text, so we fetch it from
@@ -147,7 +184,7 @@ struct SavedWorkReader: View {
                             Button {
                                 Task { await saveOffline() }
                             } label: {
-                                Label(isDownloaded ? "Downloaded" : "Save Offline",
+                                Label(isDownloaded ? "Downloaded" : "Download",
                                       systemImage: isDownloaded ? "checkmark.circle.fill" : "arrow.down.circle")
                             }
                             .disabled(isSavingOffline || isDownloaded)
@@ -182,7 +219,7 @@ struct SavedWorkReader: View {
         .saveOfflineAlert($saveError)
         .task { await load() }
         .onAppear {
-            isDownloaded = WorkPersistence.epubURL(workId: work.ao3Id) != nil
+            isDownloaded = WorkPersistence.isDownloaded(work)
             refreshNewChapterCount()
             WorkPersistence.recordView(work: work, into: context)
         }
@@ -281,13 +318,14 @@ struct SavedWorkReader: View {
         do {
             payload = try await client.fetchWork(id: work.ao3Id)
         } catch {
-            errorMessage = "This bookmarked work loads on demand. Connect to the internet to read it, then choose Save Offline in the More menu to keep it on this device."
+            errorMessage = "This bookmarked work loads on demand. Connect to the internet to read it, then choose Download in the More menu to keep it on this device."
         }
     }
 
-    /// Saves the chapter text (when it isn't stored yet), then the EPUB.
-    /// When the text can't be fetched nothing is downloaded, so the work is
-    /// never marked Downloaded without text to read offline.
+    /// Saves the chapter text (when it isn't stored yet), then AO3's EPUB.
+    /// Downloaded means the text is saved (#173), so the work is marked
+    /// Downloaded once the text is in, even if the EPUB then fails: Export
+    /// builds an EPUB from the saved text when AO3's file isn't there.
     private func saveOffline() async {
         isSavingOffline = true
         defer { isSavingOffline = false }
@@ -307,9 +345,9 @@ struct SavedWorkReader: View {
                 return
             }
         }
+        isDownloaded = true
         do {
             _ = try await client.downloadEPUB(workId: work.ao3Id)
-            isDownloaded = true
         } catch {
             saveError = "The text is saved for offline reading, but the EPUB download failed: \(error.localizedDescription)"
         }

@@ -86,7 +86,8 @@ struct SearchView: View {
         .task {
             guard !FanficlyApp.isDemoMode else { return }
             let poller = SubscriptionPoller(client: client, context: context, username: auth.username)
-            _ = await poller.checkStaleSavedSearches()
+            // Not while a full check runs; it checks these searches too.
+            _ = await BackgroundRefresh.exclusive { await poller.checkStaleSavedSearches() }
         }
         .sheet(isPresented: $showingFilters) {
             WorkFilterSheet(filters: $active, editsFandom: true) {
@@ -99,6 +100,10 @@ struct SearchView: View {
         }
         .onAppear(perform: consumePendingQuery)
         .onChange(of: pendingQuery) { _, _ in consumePendingQuery() }
+        // ⌘F (Ctrl+F on Windows): Edit → Find on iPad and the Mac, a hidden
+        // shortcut on iPhone.
+        .menuAction(\.focusSearch) { searchFocused = true }
+        .phoneOnlyShortcut("f") { searchFocused = true }
         // Debounced AO3 tag suggestions for the words being typed; restarts
         // (cancelling the last lookup) whenever those words change.
         .task(id: suggestionKey) { await loadTagSuggestions() }
@@ -402,11 +407,14 @@ struct SearchView: View {
                                 Label("Read Now", systemImage: "book")
                             }
 
-                            Button {
-                                _ = WorkPersistence.toggleFollow(summary: work, into: context)
+                            // Removing deletes the saved story, offline text
+                            // and all, behind the Undo toast (#168).
+                            let inLibrary = WorkPersistence.isInLibrary(workId: work.id, in: context)
+                            Button(role: inLibrary ? ButtonRole.destructive : nil) {
+                                WorkPersistence.setInLibrary(!inLibrary, summary: work, into: context, undoHost: undoHost)
                                 badges = WorkPersistence.resultBadges(for: visibleResults, in: context)
                             } label: {
-                                if WorkPersistence.isFollowed(workId: work.id, in: context) {
+                                if inLibrary {
                                     Label("Remove from Library", systemImage: "bookmark.slash")
                                 } else {
                                     Label("Save to Library", systemImage: "bookmark")

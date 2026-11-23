@@ -6,8 +6,9 @@ namespace Fanficly.Core;
 
 /// <summary>After a library restore, offers to re-download the EPUB files for
 /// works that were saved offline on the old device. Chapter text rides in the
-/// backup but the EPUB files don't, so a restored library reads offline yet
-/// loses its Downloaded state until the files are fetched again. Any restore
+/// backup but the EPUB files don't. A restored work still reads offline and
+/// shows as Downloaded (saved text, #173), and Export builds an EPUB from the
+/// text, so this only brings AO3's own file back. Any restore
 /// path (launch auto-sync, Settings) calls <see cref="ProposeRedownload"/>; the
 /// app shows a prompt while <see cref="ProposedIds"/> is set and a progress
 /// banner while <see cref="Progress"/> is. Downloads are cancellable at any
@@ -240,12 +241,11 @@ public sealed class RestoreDownloadCenter : INotifyPropertyChanged
 
     /// <summary>The works in a folder that aren't downloaded yet, in the order
     /// given (the folder's on-screen order), each once. <paramref name="isDownloaded"/>
-    /// defaults to the EPUB file check behind the Downloaded badge.</summary>
-    public static IReadOnlyList<int> FolderDownloadCandidates(IEnumerable<Work> works, Func<int, bool>? isDownloaded = null)
-    {
-        isDownloaded ??= id => WorkPersistence.EpubPath(id) is not null;
-        return works.Select(w => w.Ao3Id).Where(id => !EpubImport.IsLocalWork(id) && !isDownloaded(id)).Distinct().ToList();
-    }
+    /// defaults to the Downloaded badge's check, saved chapter text
+    /// (<see cref="WorkPersistence.IsDownloaded(Work)"/>, #173).</summary>
+    public static IReadOnlyList<int> FolderDownloadCandidates(IEnumerable<Work> works, Func<int, bool>? isDownloaded = null) =>
+        works.Where(w => !EpubImport.IsLocalWork(w.Ao3Id) && !(isDownloaded?.Invoke(w.Ao3Id) ?? WorkPersistence.IsDownloaded(w)))
+            .Select(w => w.Ao3Id).Distinct().ToList();
 
     /// <summary>Downloads a folder's stories one after another, each saved like
     /// the reader's Save Offline (<see cref="SaveOfflineAsync"/>). Ignored while
@@ -260,8 +260,9 @@ public sealed class RestoreDownloadCenter : INotifyPropertyChanged
     /// when none is stored yet (so it reads offline in the app), then the EPUB.</summary>
     public static async Task SaveOfflineAsync(IAO3Client client, LibraryStore store, int workId, CancellationToken ct = default)
     {
-        // Removed from the library mid-run: nothing to save it for.
-        if (store.GetWork(workId) is not { } work) return;
+        // Removed from the library mid-run, or waiting to be behind the Undo
+        // bar (#169): nothing to save it for. A download never cancels it.
+        if (UndoQueue.Shared.IsPending(UndoQueue.Keys.Work(workId)) || store.GetWork(workId) is not { } work) return;
         if (store.ChaptersOf(work).Count == 0)
         {
             var payload = await client.FetchWorkAsync(workId, ct);

@@ -337,12 +337,33 @@ extension FocusedValues {
 }
 
 /// The Reader menu's Find item: enabled only while a reader is in front.
+/// Its ⌘F is the Edit menu's Find (`FindMenuButton`), which a menu item
+/// can't share.
 struct FindInWorkMenuButton: View {
     @FocusedValue(\.findInWork) private var findInWork
 
     var body: some View {
         Button("Find in This Work…") { findInWork?() }
-            .keyboardShortcut("f", modifiers: [.command])
             .disabled(findInWork == nil)
+    }
+}
+
+/// Edit → Find (⌘F): Find in this work while a reader is in front,
+/// otherwise the search field of the screen on top (Search, the Library or
+/// a folder), as Ctrl+F does on Windows.
+struct FindMenuButton: View {
+    @FocusedValue(\.findInWork) private var findInWork
+    @FocusedValue(\.focusSearch) private var focusSearch
+
+    var body: some View {
+        Button(findInWork != nil ? "Find in This Work…" : "Find") {
+            if let findInWork {
+                findInWork()
+            } else {
+                focusSearch?()
+            }
+        }
+        .keyboardShortcut("f", modifiers: [.command])
+        .disabled(findInWork == nil && focusSearch?.isEnabled != true)
     }
 }

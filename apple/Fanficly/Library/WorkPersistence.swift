@@ -5,18 +5,46 @@ import UniformTypeIdentifiers
 
 enum WorkPersistence {
     @MainActor
-    static func upsert(payload: AO3WorkPayload, into context: ModelContext) -> Work {
+    static func upsert(payload: AO3WorkPayload, into context: ModelContext, save: Bool = true) -> Work {
         let work = upsertMetadata(summary: payload.summary, into: context, save: false)
+        // New text makes a saved EPUB stale; the caller saves a current one
+        // (Save Offline, an import), and until then Export builds from the
+        // text (#173).
+        removeSavedEPUB(workId: payload.summary.id)
 
         for ch in work.chapters { context.delete(ch) }
         work.chapters.removeAll()
         for ch in payload.chapters {
-            let chapter = Chapter(work: work, index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId)
+            let chapter = Chapter(work: work, index: ch.index, title: ch.title, bodyHTML: ch.bodyHTML, aoId: ch.aoId,
+                                  summaryHTML: ch.summaryHTML, notesHTML: ch.notesHTML, endNotesHTML: ch.endNotesHTML)
             context.insert(chapter)
         }
         // Saving the text again undoes an earlier Remove Download.
         setDownloadRemoved(work.ao3Id, removed: false)
 
+        if save { try? context.save() }
+        return work
+    }
+
+    /// Saves a work opened from a shared, dropped or pasted link (#176): its
+    /// metadata and every chapter, from the fetch the import already made, so
+    /// the story reads offline with no second request. The work is followed;
+    /// one already in the Library keeps when it was saved and followed.
+    @MainActor
+    @discardableResult
+    static func saveImported(payload: AO3WorkPayload, into context: ModelContext) -> Work {
+        // Importing a work deleted a moment ago keeps it (#169).
+        UndoCenter.shared.cancel(UndoCenter.Key.work(payload.summary.id))
+        let work = upsert(payload: payload, into: context, save: false)
+        if !work.isFollowed {
+            work.isFollowed = true
+            work.followedAt = .now
+            // Following now isn't news: alert only for chapters after this.
+            work.lastSeenChapterCount = payload.summary.chapterCount
+        }
+        // AO3 just answered for it, so an earlier follow's failed checks
+        // are over (#195).
+        work.noteCheckSucceeded()
         try? context.save()
         return work
     }
@@ -138,6 +166,8 @@ enum WorkPersistence {
             try? FileManager.default.removeItem(at: url)
         }
         deindexWork(ao3Id: work.ao3Id)
+        // The Continue reading widget mustn't keep its title (#209).
+        clearLastRead(workId: work.ao3Id)
         // Saved again later, it starts without an earlier Remove Download.
         setDownloadRemoved(work.ao3Id, removed: false)
         context.delete(work)
@@ -254,6 +284,24 @@ enum WorkPersistence {
         return .renamed
     }
 
+    /// Forgets the last-read widget entry when it names `workId` (nil: any
+    /// work): a deleted or hidden work, or a cleared history (#209). Not in
+    /// demo mode: its library is in memory, but the widget's store is the
+    /// device's own.
+    @MainActor
+    static func clearLastRead(workId: Int?) {
+        guard !FanficlyApp.isDemoMode else { return }
+        WidgetProgressStore.clear(workId: workId)
+    }
+
+    /// A hidden work never shows as the last-read widget entry, whenever its
+    /// copy was saved, until it's unhidden (#209). Not in demo mode.
+    @MainActor
+    static func setLastReadHidden(_ workId: Int, hidden: Bool) {
+        guard !FanficlyApp.isDemoMode else { return }
+        WidgetProgressStore.setHidden(workId, hidden: hidden)
+    }
+
     @MainActor
     static func deindexWork(ao3Id: Int) {
         CSSearchableIndex.default().deleteSearchableItems(
@@ -297,30 +345,103 @@ enum WorkPersistence {
         return (try? context.fetch(descriptor))?.first?.isFollowed ?? false
     }
 
-    /// Toggle the local follow flag, persisting metadata if needed.
-    /// Returns the new follow state.
+    /// Whether a story is in the Library: saved, and not waiting behind the
+    /// Undo toast to be removed. This is what "Save to Library" / "Remove
+    /// from Library" shows, whether the story was saved, followed, downloaded
+    /// or imported (#168).
+    @MainActor
+    static func isInLibrary(workId: Int, in context: ModelContext, undo: UndoCenter = .shared) -> Bool {
+        guard !undo.isPending(UndoCenter.Key.work(workId)) else { return false }
+        let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })
+        return ((try? context.fetchCount(descriptor)) ?? 0) > 0
+    }
+
+    /// The one "Save to Library" / "Remove from Library" action (#168), used
+    /// by result rows, their context menus and the work page. Saving creates
+    /// the story and follows it for new-chapter alerts. Removing deletes it
+    /// fully, like Library → Delete: offline text, EPUB, note, tags, folder
+    /// links and progress on the `Work` go with it, behind the Undo toast.
+    /// Returns whether the story is in the Library afterwards.
     @MainActor
     @discardableResult
-    static func toggleFollow(summary: AO3WorkSummary, into context: ModelContext) -> Bool {
+    static func toggleLibrary(summary: AO3WorkSummary, into context: ModelContext,
+                              undoHost: UUID? = nil, undo: UndoCenter = .shared) -> Bool {
+        setInLibrary(!isInLibrary(workId: summary.id, in: context, undo: undo), summary: summary,
+                     into: context, undoHost: undoHost, undo: undo)
+    }
+
+    /// Saves (`true`) or removes (`false`) a story, as a button showing that
+    /// action asks: a button acts on what it shows, so a row whose state is
+    /// stale never deletes a story it offered to save. Saving a story that is
+    /// already in the Library just keeps it. Returns whether the story is in
+    /// the Library afterwards.
+    @MainActor
+    @discardableResult
+    static func setInLibrary(_ wanted: Bool, summary: AO3WorkSummary, into context: ModelContext,
+                             undoHost: UUID? = nil, undo: UndoCenter = .shared) -> Bool {
+        guard !wanted else {
+            saveToLibrary(summary: summary, into: context, undo: undo)
+            return true
+        }
+        let workId = summary.id
+        if !undo.isPending(UndoCenter.Key.work(workId)),
+           let work = (try? context.fetch(FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })))?.first {
+            scheduleRemoval(work, in: context, undoHost: undoHost, undo: undo)
+        }
+        return false
+    }
+
+    /// Saves a story's metadata and follows it. A story whose removal is
+    /// still behind the Undo toast keeps everything it had (#169).
+    @MainActor
+    @discardableResult
+    static func saveToLibrary(summary: AO3WorkSummary, into context: ModelContext, undo: UndoCenter = .shared) -> Work {
+        undo.cancel(UndoCenter.Key.work(summary.id))
         let work = upsertMetadata(summary: summary, into: context, save: false)
-        work.isFollowed.toggle()
-        if work.isFollowed {
-            // Following a work deleted a moment ago keeps it (#169); an
-            // unfollow leaves its waiting delete alone.
-            UndoCenter.shared.cancel(UndoCenter.Key.work(work.ao3Id))
+        if !work.isFollowed {
+            work.isFollowed = true
             work.followedAt = .now
             work.lastSeenChapterCount = summary.chapterCount
+            // A follow starts unchecked: an earlier follow's failed checks
+            // (or one that worked months ago) say nothing about this one (#195).
+            work.lastCheckedAt = nil
+            work.lastSucceededAt = nil
+            work.checkFailures = 0
+            work.lastCheckFailure = nil
             // Following opts into the poller's new-chapter alerts — the one
             // notification source that works fully logged out — so this is
             // the moment to ask for permission, not the login-gated
             // Subscriptions tab.
             NotificationsAuthorization.requestAfterFollow()
-        } else {
-            work.followedAt = nil
         }
         try? context.save()
         iCloudSyncManager.shared.queueBackup(context: context)
-        return work.isFollowed
+        return work
+    }
+
+    /// Removes a story from the Library behind the Undo toast (#169): it
+    /// leaves every list at once and is deleted when the toast closes, with
+    /// its offline text, EPUB, note, tags and folder links. Library → Delete
+    /// and "Remove from Library" both come here.
+    @MainActor
+    static func scheduleRemoval(_ work: Work, in context: ModelContext,
+                                undoHost: UUID? = nil, undo: UndoCenter = .shared) {
+        undo.schedule(String(localized: "Deleted “\(work.title)”"),
+                      keys: [UndoCenter.Key.work(work.ao3Id)],
+                      host: undoHost) {
+            guard !work.isDeleted, work.modelContext != nil else { return }
+            iCloudSyncManager.recordDeletion(.work, key: String(work.ao3Id))
+            delete(work, in: context)
+            try? context.save()
+            iCloudSyncManager.shared.queueBackup(context: context)
+        }
+    }
+
+    /// The Library's copy of a story, if it's saved there.
+    static func savedWork(ao3Id: Int, in context: ModelContext) -> Work? {
+        var descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == ao3Id })
+        descriptor.fetchLimit = 1
+        return (try? context.fetch(descriptor))?.first
     }
 
     /// Record (or bump to "now") a work in the recently-viewed history,
@@ -385,7 +506,7 @@ enum WorkPersistence {
             ))
             try? context.save()
             iCloudSyncManager.shared.queueBackup(context: context)
-            NotificationsAuthorization.requestAfterFollow()  // see toggleFollow
+            NotificationsAuthorization.requestAfterFollow()  // see saveToLibrary
             return true
         }
     }
@@ -393,7 +514,8 @@ enum WorkPersistence {
     /// Badges for one page of search/browse results, keyed by work id. One
     /// fetch per model for the whole page, never one per row.
     @MainActor
-    static func resultBadges(for works: [AO3WorkSummary], in context: ModelContext) -> [Int: ResultBadge] {
+    static func resultBadges(for works: [AO3WorkSummary], in context: ModelContext,
+                             undo: UndoCenter = .shared) -> [Int: ResultBadge] {
         guard !works.isEmpty else { return [:] }
         let ids = works.map(\.id)
         let saved = (try? context.fetch(FetchDescriptor<Work>(predicate: #Predicate { ids.contains($0.ao3Id) }))) ?? []
@@ -405,7 +527,9 @@ enum WorkPersistence {
 
         var badges: [Int: ResultBadge] = [:]
         for work in works {
-            let savedWork = savedById[work.id]
+            // A story waiting behind the Undo toast to be removed is shown
+            // as gone already (#168).
+            let savedWork = undo.isPending(UndoCenter.Key.work(work.id)) ? nil : savedById[work.id]
             // The saved position, as the Library row shows it; a story read
             // without saving only has its stats row's furthest point.
             let progress = [savedWork?.lastReadProgress, statById[work.id]?.maxProgress]
@@ -466,13 +590,88 @@ enum WorkPersistence {
         return removed
     }
 
+    /// The saved EPUB for a work (AO3's download or an imported book), if
+    /// there is one. Only Export reads it (#173); Downloaded doesn't depend
+    /// on it, since the saved EPUBs can be removed in Settings → Storage.
     static func epubURL(workId: Int) -> URL? {
-        guard let docs = try? FileManager.default.url(
-            for: .documentDirectory, in: .userDomainMask,
-            appropriateFor: nil, create: false
-        ) else { return nil }
-        let url = docs.appendingPathComponent("library/\(workId).epub")
+        guard let dir = epubDirectory() else { return nil }
+        let url = dir.appendingPathComponent("\(workId).epub")
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// Deletes one work's saved EPUB, if there is one.
+    static func removeSavedEPUB(workId: Int) {
+        if let url = epubURL(workId: workId) {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    /// `Documents/library`, where saved EPUBs live.
+    static func epubDirectory() -> URL? {
+        (try? FileManager.default.url(
+            for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false
+        ))?.appendingPathComponent("library", isDirectory: true)
+    }
+
+    /// Downloaded means the story's text is saved on this device, so it reads
+    /// offline (#173). The EPUB file is an extra copy for Export: a restore
+    /// doesn't bring it back and Settings → Storage can remove them all, and
+    /// neither should make a readable story look not downloaded.
+    static func isDownloaded(_ work: Work) -> Bool {
+        !work.chapters.isEmpty
+    }
+
+    @MainActor
+    static func isDownloaded(workId: Int, in context: ModelContext) -> Bool {
+        let descriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == workId })
+        guard let work = (try? context.fetch(descriptor))?.first else { return false }
+        return isDownloaded(work)
+    }
+
+    /// How many saved EPUBs there are and how many bytes they take, for
+    /// Settings → Storage.
+    struct EPUBStorage: Equatable, Sendable {
+        var count: Int
+        var bytes: Int64
+    }
+
+    static func savedEPUBStorage(directory: URL? = nil) -> EPUBStorage {
+        var total = EPUBStorage(count: 0, bytes: 0)
+        for file in savedEPUBFiles(directory: directory) {
+            let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+            total.count += 1
+            total.bytes += Int64(size)
+        }
+        return total
+    }
+
+    /// Deletes every saved EPUB (Settings → Storage). The saved chapter text
+    /// stays, so every story still reads offline, shows as Downloaded and
+    /// exports (Export builds the EPUB from the text). Returns how many it
+    /// removed.
+    @discardableResult
+    static func removeAllSavedEPUBs(directory: URL? = nil) -> Int {
+        var removed = 0
+        for file in savedEPUBFiles(directory: directory)
+        where (try? FileManager.default.removeItem(at: file)) != nil {
+            removed += 1
+        }
+        return removed
+    }
+
+    /// AO3 downloads only: an imported book that isn't on AO3 (a negative
+    /// id) keeps its file, the only copy of the original with its pictures,
+    /// which nothing can download again.
+    private static func savedEPUBFiles(directory: URL?) -> [URL] {
+        guard let dir = directory ?? epubDirectory(),
+              let files = try? FileManager.default.contentsOfDirectory(
+                at: dir, includingPropertiesForKeys: [.fileSizeKey])
+        else { return [] }
+        return files.filter {
+            guard $0.pathExtension.lowercased() == "epub" else { return false }
+            let id = Int($0.deletingPathExtension().lastPathComponent)
+            return !(id.map(EPUBImport.isLocalWork) ?? false)
+        }
     }
 }
 

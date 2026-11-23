@@ -91,6 +91,8 @@ public static partial class AppHost
 
         if (!IsDemoMode)
         {
+            // Works hidden before the last-read entry honoured hiding (#209).
+            WidgetProgressStore.MatchHidden(HiddenWorkStore.Ids(Library));
             WidgetProgressStore.InstallCloudSyncObserver();
             ReaderProfileSyncStore.InstallCloudSyncObserver();
             StreakStore.InstallCloudSyncObserver();
@@ -151,6 +153,16 @@ public static partial class AppHost
             WidgetProgressStore.Save(u.Id, u.Title, u.Author, u.Progress, u.Chapter, u.Paragraph, u.UpdatedAt, u.SyncImmediately);
             MainWindow.Current?.DispatcherQueue.TryEnqueue(() => JumpListService.RefreshSoon(now: u.SyncImmediately));
         };
+        LibraryHooks.ClearWidgetProgress = workId =>
+        {
+            if (WidgetProgressStore.Clear(workId))
+                MainWindow.Current?.DispatcherQueue.TryEnqueue(() => JumpListService.RefreshSoon(now: true));
+        };
+        LibraryHooks.SetWidgetProgressHidden = (workId, hidden) =>
+        {
+            if (WidgetProgressStore.SetHidden(workId, hidden))
+                MainWindow.Current?.DispatcherQueue.TryEnqueue(() => JumpListService.RefreshSoon(now: true));
+        };
         LibraryHooks.UpdateWidgetData = store => WidgetDataStore.UpdateAll(WidgetSources(store));
         if (!IsDemoMode) Library.Changed += _ => LibrarySyncManager.QueueBackupShared(Library);
     }
@@ -197,7 +209,7 @@ public static partial class AppHost
             ChapterCount = w.ChapterCount, IsFollowed = w.IsFollowed, IsStarred = w.IsStarred, IsPinned = w.IsPinned,
             SavedAt = w.SavedAt, UpdatedAt = w.UpdatedAt,
         }).ToList(),
-        store.Subscriptions().Select(s => new WidgetSubscriptionSource(s.Key, s.Kind, s.DisplayName, s.AuthorName, s.LastSeenChapterCount, s.LastCheckedAt)).ToList());
+        store.Subscriptions().Select(s => new WidgetSubscriptionSource(s.Key, s.Kind, s.DisplayName, s.AuthorName, s.LastSeenChapterCount, s.LastCheckedAt, s.UpdatedAt)).ToList());
 
     /// <summary>Says so when settings.json was damaged or couldn't be read at
     /// launch, so a run on fallback settings is never silent.</summary>

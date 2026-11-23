@@ -7,11 +7,16 @@ to readers who need **larger text** or a **darker interface**.
 
 ## Larger Text
 
-- The reader offers a range of text sizes, plus independent **line-spacing**,
-  **paragraph-spacing**, and **column-width** controls, so you can scale story
-  text well past the default and space it for comfortable reading.
+- Story text runs from 12 to 60 points, more than three times the 18-point
+  default, with independent **line-spacing**, **paragraph-spacing**, and
+  **column-width** controls to space it for comfortable reading.
+- Story text starts at your device's **text size** (Settings › Accessibility ›
+  Display & Text Size › Larger Text, or the Text Size control): 18 points at
+  the standard size, and up to 56 points at the largest accessibility size.
+  Once you've set a size or saved a profile, the reader keeps your choice.
 - **Bold text** and **character-spacing (kerning)** controls give heavier
-  strokes and looser letterforms for readers who need them.
+  strokes and looser letterforms for readers who need them. When **Bold Text**
+  is on in your device's accessibility settings, story text is bold too.
 - Several font families are available, including highly legible choices.
 
 ## Dark Interface
@@ -51,9 +56,22 @@ to readers who need **larger text** or a **darker interface**.
 
 ## Native by design
 
-Fanficly is built with native SwiftUI, so it inherits system accessibility
-behaviors such as Dynamic Type, Bold Text, and Dark Mode. Improving support for
-assistive technologies like VoiceOver is an ongoing effort.
+Fanficly is built with native SwiftUI, so the rest of the app inherits system
+accessibility behaviors such as Dynamic Type, Bold Text, and Dark Mode. The
+reader keeps its own text size (so you can read larger or smaller than the rest
+of your device), starting from your system text size and following Bold Text as
+described above. Improving support for assistive technologies like VoiceOver is
+an ongoing effort.
+
+## On the App Store
+
+The App Store product page lists the accessibility features Fanficly claims on
+iPhone, iPad and Mac, by Apple's criteria for each: today VoiceOver, Dark
+Interface and Differentiate Without Color Alone. Larger Text isn't claimed yet:
+story text now follows the system text size up to 60 pt (#174), so it can be
+added the next time the declarations are published. The answers live in `fastlane/accessibility.json`;
+[docs/RELEASING.md](docs/RELEASING.md#accessibility-declarations) explains each
+one and how they're published.
 
 ## Feedback
 

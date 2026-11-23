@@ -26,7 +26,10 @@ struct RecentlyViewedView: View {
             } else {
                 List {
                     ForEach(recents) { item in
-                        NavigationLink(value: item.ao3Id) {
+                        // A story saved in the Library opens its saved copy,
+                        // like the Library does, so offline text reads
+                        // offline (#175); any other opens the live work page.
+                        NavigationLink(value: SavedFirstWorkRoute(workId: item.ao3Id)) {
                             let summary = rowSummary(for: item)
                             // An entry with no details anywhere hides the
                             // bookmark button: saving from it would put an
@@ -53,12 +56,13 @@ struct RecentlyViewedView: View {
                 .toolbar { EditButton() }
                 .onAppear(perform: refresh)
                 .onChange(of: recents.map(\.ao3Id)) { refresh() }
+                // A story removed from the Library (or put back with Undo)
+                // changes its "In Library" badge (#168).
+                .onChange(of: UndoCenter.shared.pending?.id) { refresh() }
             }
         }
         .navigationTitle("Recently Viewed")
-        .navigationDestination(for: Int.self) { id in
-            WorkDetailView(workId: id)
-        }
+        .savedFirstWorkDestination()
         .workAndAuthorDestinations()
         .toolbar {
             if !recents.isEmpty {
@@ -95,18 +99,26 @@ struct RecentlyViewedView: View {
         badges = WorkPersistence.resultBadges(for: recents.map(rowSummary(for:)), in: context)
     }
 
+    // Removing a story from the history, or clearing it, also forgets the
+    // last-read widget entry for it, so the widget doesn't keep the title (#209).
+
     private func remove(_ item: RecentlyViewed) {
+        WorkPersistence.clearLastRead(workId: item.ao3Id)
         context.delete(item)
         try? context.save()
     }
 
     private func removeAt(_ offsets: IndexSet) {
-        for index in offsets { context.delete(recents[index]) }
+        for index in offsets {
+            WorkPersistence.clearLastRead(workId: recents[index].ao3Id)
+            context.delete(recents[index])
+        }
         try? context.save()
     }
 
     private func clearAll() {
         for item in recents { context.delete(item) }
+        WorkPersistence.clearLastRead(workId: nil)
         try? context.save()
     }
 }

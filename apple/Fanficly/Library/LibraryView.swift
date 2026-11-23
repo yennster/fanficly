@@ -38,13 +38,6 @@ struct LibraryView: View {
 
         var title: String { rawValue }
 
-        var compactTitle: String {
-            switch self {
-            case .downloaded: "Offline"
-            default: rawValue
-            }
-        }
-
         var symbol: String {
             switch self {
             case .all:        "books.vertical"
@@ -76,7 +69,7 @@ struct LibraryView: View {
         switch filter {
         case .all:        base = works
         case .starred:    base = works.filter(\.isStarred)
-        case .downloaded: base = works.filter { WorkPersistence.epubURL(workId: $0.ao3Id) != nil }
+        case .downloaded: base = works.filter { WorkPersistence.isDownloaded($0) }
         case .folders:    base = []
         }
         
@@ -94,7 +87,7 @@ struct LibraryView: View {
                 ContentUnavailableView {
                     Label("Nothing saved yet", systemImage: "books.vertical")
                 } description: {
-                    Text("Tap the bookmark to follow a story, or 'Save offline' to download it for reading without a connection. No AO3 account needed. Already have EPUB files, like AO3 downloads? Import them to read here.")
+                    Text("Tap the bookmark to follow a story, or Download to read it without a connection. No AO3 account needed. Already have EPUB files, like AO3 downloads? Import them to read here.")
                 } actions: {
                     Button("Import EPUB…") { showingEPUBImporter = true }
                         .disabled(epubImport.isImporting)
@@ -213,7 +206,7 @@ struct LibraryView: View {
                     } else {
                         ForEach(filtered) { work in
                             NavigationLink(value: work) {
-                                LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil)
+                                LibraryRow(work: work, downloaded: WorkPersistence.isDownloaded(work))
                             }
                             .hoverEffect(.highlight)
                             .help("Read \(work.title)")
@@ -341,6 +334,7 @@ struct LibraryView: View {
         }
         .navigationTitle("Library")
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search titles, authors, tags, or notes")
+        .modifier(SearchableFindShortcut())
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -405,17 +399,9 @@ struct LibraryView: View {
 
     /// Waits behind the Undo toast (#169): the delete takes the offline
     /// text, EPUB, note, tags and folder links, and AO3 may no longer have it.
+    /// "Remove from Library" in search and on the work page does the same.
     private func delete(_ work: Work) {
-        let context = context
-        UndoCenter.shared.schedule(String(localized: "Deleted “\(work.title)”"),
-                                   keys: [UndoCenter.Key.work(work.ao3Id)],
-                                   host: undoHost) {
-            guard !work.isDeleted, work.modelContext != nil else { return }
-            iCloudSyncManager.recordDeletion(.work, key: String(work.ao3Id))
-            WorkPersistence.delete(work, in: context)
-            try? context.save()
-            iCloudSyncManager.shared.queueBackup(context: context)
-        }
+        WorkPersistence.scheduleRemoval(work, in: context, undoHost: undoHost)
     }
 
     /// Stops following a work's new chapters; it stays in the Library.
@@ -468,7 +454,7 @@ private struct LibraryFilterBar: View {
                     Button {
                         selection = filter
                     } label: {
-                        Label(filter.compactTitle, systemImage: filter.symbol)
+                        Label(filter.title, systemImage: filter.symbol)
                             .font(.subheadline.weight(selection == filter ? .semibold : .medium))
                             .labelStyle(.titleAndIcon)
                             .lineLimit(1)
@@ -548,11 +534,11 @@ struct FolderDetailView: View {
                 }
                 ForEach(sortedWorks) { work in
                     if editMode == .active {
-                        LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil)
+                        LibraryRow(work: work, downloaded: WorkPersistence.isDownloaded(work))
                             .tag(work.id)
                     } else {
                         NavigationLink(value: work) {
-                            LibraryRow(work: work, downloaded: WorkPersistence.epubURL(workId: work.ao3Id) != nil)
+                            LibraryRow(work: work, downloaded: WorkPersistence.isDownloaded(work))
                         }
                         .hoverEffect(.highlight)
                         .help("Read \(work.title)")
@@ -645,6 +631,7 @@ struct FolderDetailView: View {
         .navigationTitle(folder.name)
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search stories in folder")
+        .modifier(SearchableFindShortcut())
         .sheet(item: $workEditingNotes) { work in
             WorkNotesSheet(work: work)
         }
@@ -992,6 +979,24 @@ private struct LibraryStatsStrip: View {
             Rectangle()
                 .fill(Color.secondary.opacity(0.2))
                 .frame(width: 1, height: 26)
+        }
+    }
+}
+
+/// ⌘F for a `.searchable` field (the Library, a folder): Edit → Find on iPad
+/// and the Mac, a hidden shortcut on iPhone. Focusing a search field from
+/// code takes iOS 18 (`searchFocused`); on iOS 17 ⌘F does nothing here.
+private struct SearchableFindShortcut: ViewModifier {
+    @FocusState private var focused: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content
+                .searchFocused($focused)
+                .menuAction(\.focusSearch) { focused = true }
+                .phoneOnlyShortcut("f") { focused = true }
+        } else {
+            content
         }
     }
 }

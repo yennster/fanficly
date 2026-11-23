@@ -5,6 +5,7 @@ import UIKit // UIAccessibility announcements (SaveOfflineAlert)
 struct WorkDetailView: View {
     @Environment(\.ao3Client) private var client
     @Environment(\.modelContext) private var context
+    @Environment(\.undoToastHost) private var undoHost
     @Environment(\.colorScheme) private var systemColorScheme
     @AppStorage(ReaderProfile.deviceKey("reader.theme")) private var themeRaw: String = ReaderTheme.system.rawValue
     @Environment(\.dismiss) private var dismiss
@@ -15,8 +16,9 @@ struct WorkDetailView: View {
     /// the work never loaded.
     @State private var saveError: String?
     @State private var isSavingOffline: Bool = false
-    @State private var followed: Bool = false
-    @State private var epubURL: URL?
+    @State private var inLibrary: Bool = false
+    /// The story's text is saved on this device (#173: what Downloaded means).
+    @State private var isDownloaded = false
     @State private var showingReport: Bool = false
     @State private var showingComments: Bool = false
     @State private var showingBookmark: Bool = false
@@ -54,12 +56,15 @@ struct WorkDetailView: View {
                             #else
                             ToolbarItemGroup(placement: .topBarTrailing) {
                                 Button {
-                                    followed = WorkPersistence.toggleFollow(summary: payload.summary, into: context)
+                                    inLibrary = WorkPersistence.setInLibrary(!inLibrary, summary: payload.summary,
+                                                                             into: context, undoHost: undoHost)
                                 } label: {
-                                    Label(followed ? "Remove from Library" : "Save to Library",
-                                          systemImage: followed ? "bookmark.fill" : "bookmark")
+                                    Label(inLibrary ? "Remove from Library" : "Save to Library",
+                                          systemImage: inLibrary ? "bookmark.fill" : "bookmark")
                                 }
-                                .accessibilityLabel(followed ? "Remove from Library" : "Save to Library")
+                                .accessibilityLabel(inLibrary ? "Remove from Library" : "Save to Library")
+                                // A removal mid-download would leave the EPUB behind.
+                                .disabled(isSavingOffline)
                             
                                 moreMenu(payload: payload)
                             }
@@ -102,6 +107,13 @@ struct WorkDetailView: View {
         .subscribePresentation(subscriber, workId: workId)
         .saveOfflineAlert($saveError)
         .task { await load() }
+        // Undoing a removal puts the story back in the Library; a save
+        // elsewhere (Save Offline, an import) can cancel one (#168).
+        .onChange(of: UndoCenter.shared.pending?.id) {
+            inLibrary = WorkPersistence.isInLibrary(workId: workId, in: context)
+            // A removal that ran took the saved text with it.
+            isDownloaded = WorkPersistence.isDownloaded(workId: workId, in: context)
+        }
     }
 
     // MARK: - Toolbar buttons
@@ -161,13 +173,13 @@ struct WorkDetailView: View {
             } label: {
                 if isSavingOffline {
                     Label("Downloading…", systemImage: "arrow.down.circle")
-                } else if epubURL != nil {
+                } else if isDownloaded {
                     Label("Downloaded", systemImage: "checkmark.circle.fill")
                 } else {
                     Label("Download", systemImage: "arrow.down.circle")
                 }
             }
-            .disabled(isSavingOffline || epubURL != nil)
+            .disabled(isSavingOffline || isDownloaded)
             SubscribeMenuButton(workId: workId, title: payload.summary.title, author: payload.summary.author,
                                 chapterCount: payload.summary.chapterCount, subscriber: subscriber)
 
@@ -203,8 +215,8 @@ struct WorkDetailView: View {
     }
 
     private func load() async {
-        epubURL = WorkPersistence.epubURL(workId: workId)
-        followed = WorkPersistence.isFollowed(workId: workId, in: context)
+        isDownloaded = WorkPersistence.isDownloaded(workId: workId, in: context)
+        inLibrary = WorkPersistence.isInLibrary(workId: workId, in: context)
 
         do {
             let fetched = try await client.fetchWork(id: workId)
@@ -223,9 +235,12 @@ struct WorkDetailView: View {
         UndoCenter.shared.cancel(UndoCenter.Key.work(payload.summary.id))
         _ = WorkPersistence.upsert(payload: payload, into: context)
         iCloudSyncManager.shared.queueBackup(context: context)
+        isDownloaded = true
+        // Saving offline puts the story in the Library, so the toolbar
+        // offers to remove it (#168).
+        inLibrary = true
         do {
-            let url = try await client.downloadEPUB(workId: payload.summary.id)
-            epubURL = url
+            _ = try await client.downloadEPUB(workId: payload.summary.id)
         } catch {
             saveError = "The text is saved for offline reading, but the EPUB download failed: \(error.localizedDescription)"
         }
@@ -350,7 +365,7 @@ private struct SaveOfflineAlert: ViewModifier {
                     string: message,
                     attributes: [.accessibilitySpeechQueueAnnouncement: true]))
             }
-            .alert("Couldn't finish saving offline", isPresented: Binding(
+            .alert("Download failed", isPresented: Binding(
                 get: { message != nil },
                 set: { if !$0 { message = nil } })) {
                 Button("OK", role: .cancel) {}

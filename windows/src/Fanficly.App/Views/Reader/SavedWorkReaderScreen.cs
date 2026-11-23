@@ -65,7 +65,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
 
     protected override void Start()
     {
-        _isDownloaded = WorkPersistence.EpubPath(_work.Ao3Id) is not null;
+        _isDownloaded = WorkPersistence.IsDownloaded(_work);
         try { WorkPersistence.RecordView(_work, AppHost.Library); }
         catch (Exception e) { AppHost.Log($"Recording the view failed: {e.Message}"); }
 
@@ -131,7 +131,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
             // AO3's own reason first (offline, rate limited, signed out…), as the
             // live work page shows it, then how to keep the work offline (#205).
             ShowError("exclamationmark.triangle", "Couldn't load work",
-                $"{MessageLifetime.Sentence(e.Message)} This work isn't saved offline yet, so it loads from AO3. Once it opens, choose Save Offline in the More menu to keep it on this device.",
+                $"{MessageLifetime.Sentence(e.Message)} This work isn't saved offline yet, so it loads from AO3. Once it opens, choose Download in the More menu to keep it on this device.",
                 () => _ = LoadAsync());
         }
         finally
@@ -142,7 +142,10 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
 
     private async Task LoadRestAsync()
     {
-        if (await FetchRestAsync(_work.Ao3Id) is not { } full || IsRemoved || HasOfflineText) return;
+        // Swap even when Save Offline got the whole work meanwhile (then it's
+        // used as is): otherwise the reader stayed on its one chapter.
+        if (await FetchRestAsync(_work.Ao3Id, () => _isWholeWork ? _payload : null, () => _ = LoadRestAsync()) is not { } full
+            || IsRemoved) return;
         _payload = full;
         _isWholeWork = true;
         SwapReader(MakeReader(ReaderView.FromPayload(full)));
@@ -240,7 +243,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         else
         {
             // Downloaded with a live payload: AO3's current copy, nothing to update.
-            save = UI.UI.MenuItem(_isDownloaded ? "Downloaded" : _isSavingOffline ? "Saving Offline…" : "Save Offline",
+            save = UI.UI.MenuItem(_isDownloaded ? "Downloaded" : _isSavingOffline ? "Downloading…" : "Download",
                 () => MainWindow.Current.DispatcherQueue.TryEnqueue(() => _ = SaveOfflineAsync()),
                 _isDownloaded ? "checkmark.circle.fill" : "arrow.down.circle");
             save.IsEnabled = !_isSavingOffline && !_isDownloaded;
@@ -256,7 +259,7 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
         if (_isSavingOffline || _isUpdating) return;
         _isSavingOffline = true;
         UpdateMoreButton();
-        MainWindow.Current.Announce("Saving for offline reading");
+        MainWindow.Current.Announce("Downloading for offline reading");
         var textSaved = false;
         var fetchingEpub = false;
         try
@@ -276,20 +279,26 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
             }
             if (toSave is not null)
             {
+                // Saving a work deleted a moment ago keeps it (#169).
+                UndoQueue.Shared.Cancel(UndoQueue.Keys.Work(toSave.Summary.Id));
                 WorkPersistence.Upsert(toSave, AppHost.Library);
                 _payload = toSave;
                 _isWholeWork = true;
                 textSaved = true;
             }
+            // Here the text is saved (a failed fetch with no saved chapters
+            // threw), and Downloaded means saved text (#173), whatever the
+            // EPUB download does: Export builds an EPUB from the text.
+            textSaved = true;
+            _isDownloaded = true;
             fetchingEpub = true;
             await AppHost.Client.DownloadEpubAsync(_work.Ao3Id);
-            _isDownloaded = true;
-            MainWindow.Current.ShowMessage("Saved offline", "This work is available offline.");
+            MainWindow.Current.ShowMessage("Downloaded", "This work is available offline.");
         }
         catch (Exception e)
         {
             AppHost.Log($"Save offline failed: {e}");
-            await Dialogs.AlertAsync("Couldn't download for offline", DownloadFailureWording.For(textSaved, fetchingEpub, e.Message));
+            await Dialogs.AlertAsync("Download failed", DownloadFailureWording.For(textSaved, fetchingEpub, e.Message));
         }
         finally
         {

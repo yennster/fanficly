@@ -24,7 +24,8 @@ internal static class HistoryRegistration
 /// The Recently Viewed tab (RecentlyViewedView): fics the user has opened,
 /// newest first (entries are written when a work page opens), in result rows
 /// like AO3 History's. Click a row to
-/// open the work; remove one with Delete or its context menu (the Mac's swipe
+/// open the work (a story saved in the Library opens its saved reader, so
+/// offline text reads offline); remove one with Delete or its context menu (the Mac's swipe
 /// action); <b>Edit</b> switches to multi-select to remove several at once
 /// (the Mac's EditButton); <b>Clear</b> empties the history after a
 /// confirmation, and deletes the local diagnostic log with it, since its error
@@ -55,7 +56,7 @@ internal sealed class RecentlyViewedScreen : Screen
         AutomationProperties.SetAutomationId(_list, "history.list");
         _list.ItemClick += (_, e) =>
         {
-            if (Entry(e.ClickedItem) is { } item) Routes.OpenWork(item.Ao3Id);
+            if (Entry(e.ClickedItem) is { } item) Routes.OpenSavedOrLiveWork(item.Ao3Id);
         };
         _list.SelectionChanged += (_, _) => { if (_editing) InvalidateChrome(); };
         _list.KeyDown += (_, e) =>
@@ -177,7 +178,7 @@ internal sealed class RecentlyViewedScreen : Screen
         AutomationProperties.SetAutomationId(container, $"history.{item.Ao3Id}");
         AutomationProperties.SetHelpText(container, "Press Delete to remove it from Recently Viewed.");
         container.ContextFlyout = UI.UI.Menu(
-            UI.UI.MenuItem("Open", () => Routes.OpenWork(item.Ao3Id), "book"),
+            UI.UI.MenuItem("Open", () => Routes.OpenSavedOrLiveWork(item.Ao3Id), "book"),
             new MenuFlyoutSeparator(),
             UI.UI.MenuItem("Remove", () => Remove([item]), "trash", isDestructive: true));
         return container;
@@ -208,8 +209,7 @@ internal sealed class RecentlyViewedScreen : Screen
     private void Remove(IReadOnlyList<RecentlyViewed> items)
     {
         var index = _recents.IndexOf(items[0]);
-        foreach (var item in items) AppHost.Library.Delete(item);
-        AppHost.Library.TrySave();
+        WorkPersistence.RemoveViews(items, AppHost.Library);
         Reload();
         MainWindow.Current.Announce(items.Count == 1 ? $"Removed {items[0].Title}" : $"Removed {items.Count} entries");
         // Keep keyboard focus in the list, on the row that took the removed one's place.
@@ -228,8 +228,7 @@ internal sealed class RecentlyViewedScreen : Screen
             $"This removes all {count} entries and Fanficly's diagnostic log. It won't delete anything from AO3 or your library.",
             "Clear All", destructive: true);
         if (!confirmed) return;
-        foreach (var item in AppHost.Library.RecentlyViewedNewestFirst()) AppHost.Library.Delete(item);
-        AppHost.Library.TrySave();
+        WorkPersistence.ClearRecentlyViewed(AppHost.Library);
         AppHost.ClearLog();
         _editing = false;
         _list.SelectionMode = ListViewSelectionMode.None;

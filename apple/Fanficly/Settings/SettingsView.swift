@@ -64,6 +64,7 @@ struct SettingsView: View {
             } footer: {
                 Text("Shows a progress bar and percentage on works you've started. Your reading position is always saved — this only hides the display.")
             }
+            NotificationsSettingsSection()
             Section("iCloud Sync") {
                 Toggle("Sync Library to iCloud", isOn: $iCloudSyncEnabled)
                     .onChange(of: iCloudSyncEnabled) { _, newValue in
@@ -238,6 +239,7 @@ struct SettingsView: View {
             } footer: {
                 Text("Saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly for Windows. Importing adds the file's works to your library without moving reading progress backwards.")
             }
+            EPUBStorageSection()
             Section {
                 Toggle("Filter mature & explicit works", isOn: $filterMature)
                 NavigationLink("Hidden works", value: SettingsRoute.hiddenWorks)
@@ -273,6 +275,9 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
+        // A widget, Spotlight or notification tap opens the reader over this
+        // tab, and its byline, series and tag links push these.
+        .workAndAuthorDestinations()
         .navigationDestination(for: SettingsRoute.self) { route in
             switch route {
             case .login:
@@ -378,6 +383,54 @@ struct SettingsView: View {
     }
 }
 
+/// Settings → Storage (#173): how much room the saved EPUB files take, and a
+/// button that removes them all. The saved chapter text stays, so every story
+/// still reads offline, still shows as Downloaded and still exports as EPUB
+/// (built from the text).
+struct EPUBStorageSection: View {
+    @State private var storage = WorkPersistence.EPUBStorage(count: 0, bytes: 0)
+    @State private var confirming = false
+
+    var body: some View {
+        Section {
+            LabeledContent("Saved EPUB files", value: Self.summary(storage))
+            Button("Remove Saved EPUB Files…", role: .destructive) {
+                confirming = true
+            }
+            .disabled(storage.count == 0)
+            .confirmationDialog("Remove \(storage.count) saved EPUB \(storage.count == 1 ? "file" : "files")?",
+                                isPresented: $confirming, titleVisibility: .visible) {
+                Button("Remove EPUB Files", role: .destructive) {
+                    let removed = WorkPersistence.removeAllSavedEPUBs()
+                    refresh()
+                    #if os(iOS)
+                    UIAccessibility.post(notification: .announcement,
+                                         argument: "Removed \(removed) EPUB \(removed == 1 ? "file" : "files").")
+                    #endif
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Your stories stay saved and still read offline. Export can still make an EPUB of any saved story.")
+            }
+        } header: {
+            Text("Storage")
+        } footer: {
+            Text("Save Offline keeps AO3's EPUB file of each story as well as its text, so you can export it to another app even when you're offline. Removing the files frees up space; your stories, reading progress and Downloaded badges stay. Books you imported keep their original files.")
+        }
+        .onAppear(perform: refresh)
+    }
+
+    private func refresh() {
+        storage = WorkPersistence.savedEPUBStorage()
+    }
+
+    static func summary(_ storage: WorkPersistence.EPUBStorage) -> String {
+        guard storage.count > 0 else { return String(localized: "None") }
+        let size = ByteCountFormatter.string(fromByteCount: storage.bytes, countStyle: .file)
+        return String(localized: "\(storage.count) \(storage.count == 1 ? "file" : "files"), \(size)")
+    }
+}
+
 /// The alert Clear iCloud Data ends with, saying what really happened.
 struct ClearResultAlert {
     let title: String
@@ -431,36 +484,48 @@ private enum LibraryFileAlert: String, Identifiable {
 }
 
 struct PrivacyTransparencyView: View {
+    /// The full policy, the one the App Store listing links to.
+    static let policyURL = URL(string: "https://github.com/yennster/fanficly/blob/main/PRIVACY.md")!
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("What this app sees and stores")
                     .font(.title2).bold()
 
-                Text("Fanficly has no servers. Everything happens on your phone.")
+                Text("Fanficly has no servers. Everything happens on your device.")
 
                 section(
                     "What we collect",
                     "Nothing. No analytics, no crash reports, no device IDs, no telemetry."
                 )
                 section(
-                    "What's stored on your phone",
+                    "What's stored on your device",
                     """
-                    • Your AO3 session cookie (in iOS Keychain), so you stay logged in.
+                    • Your AO3 username and AO3's sign-in cookies (in the Keychain), so you stay logged in. Your password is never stored.
                     • Works you've saved offline, your notes and tags on them, and your reading position (in app storage).
                     • Your preferences (theme, font size).
+                    • What the widgets show: the story you read last, your reading streak, and short lists of saved searches, folders, subscriptions and recommendations.
                     • The title, author, summary and tags of works in your Library, in your device's on-device Spotlight index so system search can find them. Removing a work removes it.
-                    • An optional backup of your library and settings in your private iCloud storage, if iCloud Sync is enabled.
                     """
                 )
                 section(
-                    "What goes off your phone",
-                    "Requests to archiveofourown.org so you can read, search, and log in. We never send your data anywhere else."
+                    "What goes off your device",
+                    """
+                    • Requests to archiveofourown.org so you can read, search and log in, and so Fanficly can check works, authors and saved searches you follow for new chapters, sometimes in the background.
+                    • Your reader profiles, last-read progress and reading days, synced automatically through your own iCloud.
+                    • An optional backup of your library and settings in your private iCloud storage, if Sync Library to iCloud is on.
+                    • Images in stories, fetched from the author's image host, only if you turn on Show images in stories.
+                    Nothing is ever sent to us.
+                    """
                 )
                 section(
                     "How to delete everything",
-                    "Delete the app. iOS will erase all on-device storage including the session cookie. There's no server to wipe — there's no server."
+                    "Log out of AO3 first, clear your iCloud backup in Settings → iCloud Sync if you turned it on, then delete the app. Your device's own iCloud backups can still hold a copy until they're replaced. There's no server to wipe — there's no server."
                 )
+                Link(destination: Self.policyURL) {
+                    Label("Read the full privacy policy", systemImage: "arrow.up.right.square")
+                }
             }
             .padding()
         }

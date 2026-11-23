@@ -22,7 +22,8 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
     /// <summary><see cref="_payload"/> holds every chapter (not just the one the
     /// reader opened on), so it's safe to save.</summary>
     private bool _isWholeWork;
-    private string? _epubPath;
+    /// <summary>The story's text is saved on this PC (#173: what Downloaded means).</summary>
+    private bool _downloaded;
     private bool _followed;
     private bool _isSavingOffline;
     private int _currentChapter = 1;
@@ -47,7 +48,7 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
 
     private async Task LoadAsync()
     {
-        _epubPath = WorkPersistence.EpubPath(_workId);
+        _downloaded = WorkPersistence.IsDownloaded(_workId, AppHost.Library);
         _followed = WorkPersistence.IsFollowed(_workId, AppHost.Library);
         ShowLoading("Loading…");
         try
@@ -76,7 +77,7 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
 
     private async Task LoadRestAsync()
     {
-        if (await FetchRestAsync(_workId) is not { } full || IsRemoved) return;
+        if (await FetchRestAsync(_workId, () => _isWholeWork ? _payload : null, () => _ = LoadRestAsync()) is not { } full || IsRemoved) return;
         _payload = full;
         _isWholeWork = true;
         SwapReader(MakeReader(ReaderView.FromPayload(full)));
@@ -167,7 +168,7 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
 
         menu.Items.Add(_exporter.Menu(_workId, () => title));
 
-        var downloaded = _epubPath is not null;
+        var downloaded = _downloaded;
         var download = UI.UI.MenuItem(
             _isSavingOffline ? "Downloading…" : downloaded ? "Downloaded" : "Download",
             () => Later(SaveOfflineAsync),
@@ -211,10 +212,13 @@ internal sealed class WorkDetailScreen : ReaderHostScreen
         {
             // Saving replaces the stored chapters, so never with just one of them.
             var payload = await WholeWorkAsync();
+            // Saving a work deleted a moment ago keeps it (#169).
+            UndoQueue.Shared.Cancel(UndoQueue.Keys.Work(payload.Summary.Id));
             WorkPersistence.Upsert(payload, AppHost.Library);
             textSaved = true;
+            _downloaded = true;
             fetchingEpub = true;
-            _epubPath = await AppHost.Client.DownloadEpubAsync(payload.Summary.Id);
+            await AppHost.Client.DownloadEpubAsync(payload.Summary.Id);
             _followed = WorkPersistence.IsFollowed(_workId, AppHost.Library);
             UpdateSaveButton();
             MainWindow.Current.ShowMessage("Downloaded", "This work is available offline.");
