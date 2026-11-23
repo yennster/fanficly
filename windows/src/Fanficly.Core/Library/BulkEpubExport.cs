@@ -84,7 +84,9 @@ public static class BulkEpubExport
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException)
                 {
-                    // A saved file that can't be read: build one from the text instead.
+                    // A saved file that can't be read, or a name Windows won't
+                    // take: build one from the text instead, under the work id
+                    // if the name was the problem.
                     LibraryHooks.Log?.Invoke($"Copying {saved} failed: {e.Message}");
                 }
             }
@@ -95,7 +97,19 @@ public static class BulkEpubExport
             else if (WorkPersistence.IsDownloaded(work))
             {
                 var book = EpubBuilder.BookFrom(work);
-                await Task.Run(() => File.WriteAllBytes(target, EpubBuilder.Build(book)), ct);
+                var bytes = await Task.Run(() => EpubBuilder.Build(book), ct);
+                try
+                {
+                    await File.WriteAllBytesAsync(target, bytes, ct);
+                }
+                catch (IOException e)
+                {
+                    // A name Windows won't take (a title like "CON" or "AUX"):
+                    // fall back to the work id rather than stop the whole export.
+                    LibraryHooks.Log?.Invoke($"Writing {target} failed: {e.Message}");
+                    target = Path.Combine(folder, $"work-{work.Ao3Id}.epub");
+                    await File.WriteAllBytesAsync(target, bytes, ct);
+                }
                 written.Add(target);
             }
             done++;
