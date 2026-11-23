@@ -666,8 +666,11 @@ final class ReaderPaginationTests: XCTestCase {
                     paragraphSpacing: type.paragraphSpacing, kerning: type.kerning, boldText: type.bold,
                     drawnHeight: drawn(type, resized), pagesBefore: 1, pagesAfter: 2), "\(context): no refit")
                 while refit.packNextPage() {}
+                // The pages before the refitted ones are the old pagination's,
+                // so a header-only page 0 there stays (#174).
                 let result = Pagination(pages: refit.pages, atoms: refit.atoms,
-                                        chapterHeaderHeight: before.chapterHeaderHeight)
+                                        chapterHeaderHeight: before.chapterHeaderHeight,
+                                        headerFillsPage: before.headerFillsPage)
 
                 // Every sentence once, the chapter's text unchanged, and pages
                 // numbered from the chapter's start.
@@ -845,6 +848,14 @@ final class ReaderFontSizeStepTests: XCTestCase {
 
 /// The reader follows the system text size and Bold Text (#174).
 final class ReaderSystemTextTests: XCTestCase {
+    /// Mac Catalyst has no Dynamic Type sizes: UIFontMetrics returns body
+    /// text unscaled whatever the category, so the reader stays at 18 pt there.
+    private func skipOnMac() throws {
+        #if targetEnvironment(macCatalyst)
+        throw XCTSkip("Mac Catalyst doesn't scale text by content size category")
+        #endif
+    }
+
     private func size(_ category: UIContentSizeCategory) -> Double {
         ReaderMetrics.systemFontSize(scaledBy: UIFontMetrics(forTextStyle: .body),
                                      traits: UITraitCollection(preferredContentSizeCategory: category))
@@ -854,7 +865,8 @@ final class ReaderSystemTextTests: XCTestCase {
         XCTAssertEqual(size(.large), ReaderMetrics.defaultFontSize)
     }
 
-    func test_followsDynamicType_inWholePoints() {
+    func test_followsDynamicType_inWholePoints() throws {
+        try skipOnMac()
         let sizes = [UIContentSizeCategory.extraSmall, .medium, .large, .extraLarge, .extraExtraExtraLarge,
                      .accessibilityMedium, .accessibilityExtraExtraExtraLarge].map(size)
         XCTAssertEqual(sizes, sizes.sorted(), "bigger system text, bigger story text")
@@ -866,7 +878,8 @@ final class ReaderSystemTextTests: XCTestCase {
     }
 
     /// The accessibility sizes carry past the old 30 pt ceiling.
-    func test_largestAccessibilitySize_goesWellPastThirtyPoints() {
+    func test_largestAccessibilitySize_goesWellPastThirtyPoints() throws {
+        try skipOnMac()
         XCTAssertGreaterThanOrEqual(size(.accessibilityExtraExtraExtraLarge), 48)
     }
 
