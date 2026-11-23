@@ -82,6 +82,9 @@ public static class WorkPersistence
         work.IsFollowed = !work.IsFollowed;
         if (work.IsFollowed)
         {
+            // Following a work deleted a moment ago keeps it (#169); an
+            // unfollow leaves its waiting delete alone.
+            UndoQueue.Shared.Cancel(UndoQueue.Keys.Work(work.Ao3Id));
             work.FollowedAt = DateTimeOffset.Now;
             work.LastSeenChapterCount = summary.ChapterCount;
             // A follow starts unchecked: an earlier follow's failed checks (or

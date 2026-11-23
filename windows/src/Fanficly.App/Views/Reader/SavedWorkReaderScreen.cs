@@ -142,7 +142,10 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
 
     private async Task LoadRestAsync()
     {
-        if (await FetchRestAsync(_work.Ao3Id) is not { } full || IsRemoved || HasOfflineText) return;
+        // Swap even when Save Offline got the whole work meanwhile (then it's
+        // used as is): otherwise the reader stayed on its one chapter.
+        if (await FetchRestAsync(_work.Ao3Id, () => _isWholeWork ? _payload : null, () => _ = LoadRestAsync()) is not { } full
+            || IsRemoved) return;
         _payload = full;
         _isWholeWork = true;
         SwapReader(MakeReader(ReaderView.FromPayload(full)));
@@ -276,6 +279,8 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
             }
             if (toSave is not null)
             {
+                // Saving a work deleted a moment ago keeps it (#169).
+                UndoQueue.Shared.Cancel(UndoQueue.Keys.Work(toSave.Summary.Id));
                 WorkPersistence.Upsert(toSave, AppHost.Library);
                 _payload = toSave;
                 _isWholeWork = true;
