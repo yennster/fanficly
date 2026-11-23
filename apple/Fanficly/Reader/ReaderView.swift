@@ -18,7 +18,7 @@ struct ReaderView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.fontFamily")) private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
     @AppStorage(ReaderProfile.deviceKey("reader.widthPercent")) private var widthPercent: Double = 70.0
     @AppStorage(ReaderProfile.deviceKey("reader.mode")) private var modeRaw: String = ReadingMode.continuous.rawValue
-    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.defaultFontSize
+    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.systemFontSize
     @AppStorage(ReaderProfile.deviceKey("reader.lineSpacingPt")) private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
     @AppStorage(ReaderProfile.deviceKey("reader.paragraphSpacingPt")) private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnHaptics")) private var pageTurnHaptics: Bool = false
@@ -27,6 +27,8 @@ struct ReaderView: View {
     @AppStorage(VolumeButtonTurn.settingKey) private var volumeButtonsTurnPages: Bool = false
     @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
     @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
+    // The system's Bold Text setting turns story text bold too (#174).
+    @Environment(\.legibilityWeight) private var legibilityWeight
     // Page-by-page shows two pages side by side on a wide window (iPhone Duo
     // unfolded, iPad landscape, Mac). Per device but not in reading profiles:
     // it's about the screen's shape, not typography.
@@ -62,6 +64,10 @@ struct ReaderView: View {
     /// Bumped by `jump(toChapter:)`; continuous scroll jumps on it rather than
     /// on `selectedChapterIndex`, which scrolling never updates there.
     @State private var continuousJump = 0
+    /// Bumped by End in continuous scroll: scrolls the end of
+    /// `continuousEndChapter` to the bottom of the screen.
+    @State private var continuousEndJump = 0
+    @State private var continuousEndChapter = 1
     @State private var currentAnchor: ReadingAnchor?
     /// The author's notes sections open right now (#181).
     @State private var openNotes: Set<String> = []
@@ -316,6 +322,9 @@ struct ReaderView: View {
     private var lineSpacing: CGFloat { CGFloat(lineSpacingPt) / CGFloat(zoomScale) }
     private var paragraphSpacing: CGFloat { CGFloat(paragraphSpacingPt) / CGFloat(zoomScale) }
     private var kerning: CGFloat { CGFloat(kerningPt) / CGFloat(zoomScale) }
+    /// Story text is bold: the Bold text setting, or the system's Bold Text.
+    private var drawsBold: Bool { ReaderMetrics.drawsBold(boldText, legibilityWeight: legibilityWeight) }
+    private var systemBoldText: Bool { legibilityWeight == .bold }
 
     init(title: String, author: String, chapters: [AO3ChapterPayload], summary: AO3WorkSummary? = nil) {
         ReaderProfile.migrateLegacySettingsIfNeeded()
@@ -454,7 +463,7 @@ struct ReaderView: View {
 
         func body(content: Content) -> some View {
             content
-                .focusedSceneValue(\.findInWork, FindInWorkAction { showingFind = true })
+                .onScreenSceneValue(\.findInWork, FindInWorkAction { showingFind = true })
                 .sheet(isPresented: $showingFind) {
                     WorkFindView(chapters: chapters, includeImages: includeImages,
                                  query: $query, onSelect: select)
@@ -654,8 +663,12 @@ struct ReaderView: View {
                 toggleChromeAccessibly()
                 return true
             },
-            find: { showingFind = true }
+            find: { showingFind = true },
+            command: { performCommandKey($0) }
         ))
+        // The Reader menu's Previous / Next Chapter and Listen (iPad, Mac),
+        // not while Find's sheet is up (its field keeps ⌘← / ⌘→).
+        .onScreenSceneValue(\.readerMenu, showingFind ? nil : readerMenuActions)
         .modifier(FindPresentationModifier(
             showingFind: $showingFind,
             query: $findQuery,
@@ -690,6 +703,73 @@ struct ReaderView: View {
         case .turnChapter(let forward): turnPage(forward: forward)
         case .scrollScreen(let forward): keyScroll(forward: forward, screenful: true)
         case .scrollLine(let forward): keyScroll(forward: forward, screenful: false)
+        case .chapterEdge(let end): goToChapterEdge(end: end)
+        }
+    }
+
+    /// ⌘← / ⌘→ and ⌘L, from the reader's own keys on iPhone or the Reader
+    /// menu on iPad and the Mac.
+    private func performCommandKey(_ key: ReaderCommandKey) {
+        switch key {
+        case .chapter(let forward): turnChapterAnnounced(forward: forward)
+        case .listen: toggleListening()
+        }
+    }
+
+    private var readerMenuActions: ReaderMenuActions {
+        let order = chapters.map(\.index)
+        let current = effectiveChapterIndex
+        return ReaderMenuActions(
+            hasPreviousChapter: ChapterTracking.adjacentChapter(in: order, current: current, forward: false) != nil,
+            hasNextChapter: ChapterTracking.adjacentChapter(in: order, current: current, forward: true) != nil,
+            isListening: speech.isActive,
+            turnChapter: { turnChapterAnnounced(forward: $0) },
+            toggleListening: { toggleListening() })
+    }
+
+    /// The next or previous chapter from its top, in every reading mode (as
+    /// the Chapters menu does), announced for VoiceOver as on Windows.
+    private func turnChapterAnnounced(forward: Bool) {
+        guard let target = ChapterTracking.adjacentChapter(in: chapters.map(\.index),
+                                                           current: effectiveChapterIndex, forward: forward)
+        else { return }
+        jump(toChapter: target)
+        UIAccessibility.post(notification: .pageScrolled,
+                             argument: "Chapter \(target) of \(chapters.count)")
+    }
+
+    /// Home / End: the first or last page of the chapter (page-by-page), or
+    /// the top or bottom of it (the scrolling modes), as on Windows.
+    private func goToChapterEdge(end: Bool) {
+        switch mode {
+        case .pageByPage:
+            guard let target = ReaderChapterEdge.pageId(in: paginatedPages, selected: selectedPageId,
+                                                        end: end, spreads: spreadLayout != nil)
+            else { return }
+            updatePageSelection(target)
+        case .paginated:
+            guard let scrollView = keyScrollViews[selectedChapterIndex] else { return }
+            let inset = scrollView.adjustedContentInset
+            let top = -inset.top
+            let y = end ? max(scrollView.contentSize.height + inset.bottom - scrollView.bounds.height, top) : top
+            scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: y), animated: pageTurnAnimations)
+        case .continuous:
+            if end {
+                continuousEndChapter = visibleChapterIndex
+                continuousEndJump &+= 1
+            } else {
+                jump(toChapter: visibleChapterIndex)
+            }
+        }
+    }
+
+    /// Listen to the chapter, or stop: the Aa menu's Listen item, ⌘L.
+    private func toggleListening() {
+        if speech.isActive {
+            speech.stop()
+            listeningChapter = nil
+        } else {
+            startNarration()
         }
     }
 
@@ -741,12 +821,7 @@ struct ReaderView: View {
     @ViewBuilder
     private var listenMenuButton: some View {
         Button {
-            if speech.isActive {
-                speech.stop()
-                listeningChapter = nil
-            } else {
-                startNarration()
-            }
+            toggleListening()
         } label: {
             Label(speech.isActive ? "Stop listening" : "Listen to chapter",
                   systemImage: speech.isActive ? "stop.circle" : "headphones")
@@ -1009,6 +1084,12 @@ struct ReaderView: View {
                                 }
                                 notesBefore(chapter, fg: fg)
                                 chapterBlock(chapter, fg: fg)
+                                    // End's target in continuous scroll.
+                                    .overlay(alignment: .bottom) {
+                                        Color.clear.frame(height: 1)
+                                            .id(ChapterEndID(chapter: chapter.index))
+                                            .accessibilityHidden(true)
+                                    }
                                 notesAfter(chapter, fg: fg)
                             }
                             .id(chapter.index)
@@ -1108,6 +1189,17 @@ struct ReaderView: View {
                     Task {
                         try? await Task.sleep(nanoseconds: 60_000_000)
                         proxy.scrollTo(newIndex, anchor: .top)
+                    }
+                }
+                .onChange(of: continuousEndJump) { _, _ in
+                    let target = ChapterEndID(chapter: continuousEndChapter)
+                    withAnimation(pageTurnAnimations && !reduceMotion ? .default : nil) {
+                        proxy.scrollTo(target, anchor: .bottom)
+                    }
+                    // Again once the layout settles, as a chapter jump does.
+                    Task {
+                        try? await Task.sleep(nanoseconds: 60_000_000)
+                        proxy.scrollTo(target, anchor: .bottom)
                     }
                 }
                 .onChange(of: currentAnchor) { _, anchor in
@@ -1660,7 +1752,7 @@ struct ReaderView: View {
                 lineSpacing: lineSpacingPt / zoomScale,
                 paragraphSpacing: paragraphSpacingPt / zoomScale,
                 kerning: kerningPt / zoomScale,
-                boldText: boldText,
+                boldText: drawsBold,
                 showImages: showImages,
                 content: ChapterContentSignature(chapters),
                 size: CGSize(
@@ -1949,7 +2041,7 @@ struct ReaderView: View {
                 lineSpacing: lineSpacing,
                 paragraphSpacing: paragraphSpacing,
                 kerning: kerning,
-                boldText: boldText,
+                boldText: drawsBold,
                 foreground: fg,
                 highlightParagraph: highlightedParagraph(for: page.chapterIndex)
             )
@@ -2657,7 +2749,7 @@ struct ReaderView: View {
             foreground: fg,
             scrollSpace: scrollSpace,
             kerning: kerning,
-            boldText: boldText,
+            boldText: drawsBold,
             highlightParagraph: highlightedParagraph(for: chapter.index),
             showImages: showImages
         )
@@ -2903,9 +2995,11 @@ struct ReaderView: View {
                 Label("Font · \(fontFamily.displayName)", systemImage: "character")
             }
 
-            Toggle(isOn: $boldText) {
+            // On, and locked on, while the system's Bold Text is on.
+            Toggle(isOn: systemBoldText ? .constant(true) : $boldText) {
                 Label("Bold text", systemImage: "bold")
             }
+            .disabled(systemBoldText)
 
             presetMenu("Text size", value: $fontSizePt, presets: ReaderMetrics.fontSizePresets,
                        icon: "textformat.size")

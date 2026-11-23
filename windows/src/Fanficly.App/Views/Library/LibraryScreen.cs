@@ -24,12 +24,12 @@ public sealed class LibraryScreen : Screen
 {
     internal enum LibraryFilter { All, Starred, Downloaded, Folders }
 
-    private static readonly (LibraryFilter Filter, string Title, string Compact, string Symbol, string Id)[] FilterInfo =
+    private static readonly (LibraryFilter Filter, string Title, string Symbol, string Id)[] FilterInfo =
     [
-        (LibraryFilter.All, "All", "All", "books.vertical", "library.filter.all"),
-        (LibraryFilter.Starred, "Starred", "Starred", "star", "library.filter.starred"),
-        (LibraryFilter.Downloaded, "Downloaded", "Offline", "arrow.down.circle", "library.filter.downloaded"),
-        (LibraryFilter.Folders, "Folders", "Folders", "folder", "library.filter.folders"),
+        (LibraryFilter.All, "All", "books.vertical", "library.filter.all"),
+        (LibraryFilter.Starred, "Starred", "star", "library.filter.starred"),
+        (LibraryFilter.Downloaded, "Downloaded", "arrow.down.circle", "library.filter.downloaded"),
+        (LibraryFilter.Folders, "Folders", "folder", "library.filter.folders"),
     ];
 
     private LibraryFilter _filter = LibraryFilter.All;
@@ -136,17 +136,12 @@ public sealed class LibraryScreen : Screen
         };
         _root.Children.Add(_emptyHost.Row(2));
 
-        // Narrow windows use the compact filter titles ("Offline").
+        // Narrow windows drop the icons so all four filters fit.
         _root.SizeChanged += (_, e) =>
         {
-            var compact = e.NewSize.Width < 560;
-            // Phone-width windows drop the icons so all four filters fit.
-            var tight = e.NewSize.Width < 440;
+            var tight = e.NewSize.Width < 560;
             for (var i = 0; i < FilterInfo.Length; i++)
-            {
-                _filterItems[i].Text = compact ? FilterInfo[i].Compact : FilterInfo[i].Title;
                 if (_filterItems[i].Icon is { } icon) icon.Visibility = tight ? Visibility.Collapsed : Visibility.Visible;
-            }
         };
 
         _debounce = MainWindow.Current.DispatcherQueue.CreateTimer();
@@ -269,7 +264,7 @@ public sealed class LibraryScreen : Screen
         {
             _list.Element.Visibility = Visibility.Collapsed;
             _emptyHost.Content = UI.UI.EmptyState("books.vertical", "Nothing saved yet",
-                "Click the bookmark to follow a story, or 'Save offline' to download it for reading without a connection. No AO3 account needed. Already have EPUB files, like AO3 downloads? Import them to read here.",
+                "Click the bookmark to follow a story, or Download to read it without a connection. No AO3 account needed. Already have EPUB files, like AO3 downloads? Import them to read here.",
                 "Import EPUB...", () => _ = EpubImporter.PickAndImportAsync());
             _list.Reset([]);
             return;
@@ -306,7 +301,7 @@ public sealed class LibraryScreen : Screen
             IEnumerable<Work> baseList = _filter switch
             {
                 LibraryFilter.Starred => works.Where(w => w.IsStarred),
-                LibraryFilter.Downloaded => works.Where(w => WorkPersistence.EpubPath(w.Ao3Id) is not null),
+                LibraryFilter.Downloaded => works.Where(WorkPersistence.IsDownloaded),
                 _ => works,
             };
             if (query.Length > 0) baseList = baseList.Where(w => w.Matches(query));
@@ -370,7 +365,7 @@ public sealed class LibraryScreen : Screen
 
     private Button WorkRowButton(Work work, int index)
     {
-        var downloaded = WorkPersistence.EpubPath(work.Ao3Id) is not null;
+        var downloaded = WorkPersistence.IsDownloaded(work);
         var (content, name) = LibraryRow.Build(work, downloaded);
         var button = RowButton(content);
         AutomationProperties.SetName(button, name);

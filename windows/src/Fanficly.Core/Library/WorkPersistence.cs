@@ -14,6 +14,9 @@ public static class WorkPersistence
     public static Work Upsert(AO3WorkPayload payload, LibraryStore store, bool save = true)
     {
         var work = UpsertMetadata(payload.Summary, store, save: false);
+        // New text makes a saved EPUB stale; the caller saves a current one
+        // (Save Offline, an import), and until then Export builds from the text (#173).
+        RemoveSavedEpub(payload.Summary.Id);
 
         foreach (var ch in work.Chapters.ToList()) store.Delete(ch);
         foreach (var ch in payload.Chapters)
@@ -182,6 +185,8 @@ public static class WorkPersistence
         DeindexWork(work.Ao3Id);
         // A work saved again later starts fresh: another device's chapters may restore.
         SyncDeletions.SetDownloadRemoved(LibrarySyncManager.SharedSettings, work.Ao3Id, removed: false);
+        // The Continue reading widget and the jump list mustn't keep its title (#209).
+        LibraryHooks.ClearWidgetProgress?.Invoke(work.Ao3Id);
         store.Delete(work);
     }
 
@@ -292,16 +297,28 @@ public static class WorkPersistence
         store.TrySave();
     }
 
-    /// <summary>Removes entries from the history (swipe / Edit-mode delete).</summary>
+    /// <summary>Removes entries from the history (swipe / Edit-mode delete),
+    /// and the last-read entry when it's one of them (#209).</summary>
     public static void RemoveViews(IEnumerable<RecentlyViewed> items, LibraryStore store)
     {
-        foreach (var item in items) store.Delete(item);
+        foreach (var item in items.ToList())
+        {
+            LibraryHooks.ClearWidgetProgress?.Invoke(item.Ao3Id);
+            store.Delete(item);
+        }
         store.TrySave();
     }
 
-    /// <summary>Clears the whole history. Nothing is deleted from AO3 or the library.</summary>
-    public static void ClearRecentlyViewed(LibraryStore store) =>
-        RemoveViews(store.All<RecentlyViewed>(), store);
+    /// <summary>Clears the whole history, and the last-read entry with it
+    /// (whichever work it names), so the Continue reading widget and the jump
+    /// list don't keep showing what was read (#209). Nothing is deleted from
+    /// AO3 or the library, and saved reading places stay.</summary>
+    public static void ClearRecentlyViewed(LibraryStore store)
+    {
+        foreach (var item in store.All<RecentlyViewed>().ToList()) store.Delete(item);
+        LibraryHooks.ClearWidgetProgress?.Invoke(null);
+        store.TrySave();
+    }
 
     // MARK: - Followed authors
 
@@ -391,14 +408,80 @@ public static class WorkPersistence
     /// <summary>Where a work's EPUB is (or will be) stored.</summary>
     public static string EpubTargetPath(int workId) => Path.Combine(LibraryFolder, $"{workId}.epub");
 
-    /// <summary>The downloaded EPUB's path, or null when there's no file — the
-    /// Library's "Downloaded" state keys off the file, not a flag.</summary>
+    /// <summary>The saved EPUB's path (AO3's download or an imported book), or
+    /// null when there's no file. Only Export reads it (#173); Downloaded
+    /// doesn't depend on it, since Settings → Storage can remove them all.</summary>
     public static string? EpubPath(int workId)
     {
         var path = EpubTargetPath(workId);
         return File.Exists(path) ? path : null;
     }
+
+    /// <summary>Deletes one work's saved EPUB, if there is one.</summary>
+    public static void RemoveSavedEpub(int workId)
+    {
+        if (EpubPath(workId) is not { } path) return;
+        try { File.Delete(path); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { LibraryHooks.Log?.Invoke($"Removing {path} failed: {e.Message}"); }
+    }
+
+    /// <summary>Downloaded means the story's text is saved on this PC, so it
+    /// reads offline (#173). The EPUB file is an extra copy for Export: a
+    /// restore doesn't bring it back and Settings → Storage can remove them
+    /// all, and neither should make a readable story look not downloaded.</summary>
+    public static bool IsDownloaded(Work work) => work.Chapters.Count > 0;
+
+    public static bool IsDownloaded(int workId, LibraryStore store) =>
+        store.GetWork(workId) is { } work && IsDownloaded(work);
+
+    /// <summary>How many saved EPUBs there are and how many bytes they take,
+    /// for Settings → Storage.</summary>
+    public static EpubStorage SavedEpubStorage(string? folder = null)
+    {
+        int count = 0;
+        long bytes = 0;
+        foreach (var file in SavedEpubFiles(folder))
+        {
+            try { bytes += new FileInfo(file).Length; count++; }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
+        return new EpubStorage(count, bytes);
+    }
+
+    /// <summary>Deletes every saved EPUB (Settings → Storage). The saved chapter
+    /// text stays, so every story still reads offline, shows as Downloaded and
+    /// exports (Export builds the EPUB from the text). Returns how many it removed.</summary>
+    public static int RemoveAllSavedEpubs(string? folder = null)
+    {
+        var removed = 0;
+        foreach (var file in SavedEpubFiles(folder))
+        {
+            try { File.Delete(file); removed++; }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { LibraryHooks.Log?.Invoke($"Removing {file} failed: {e.Message}"); }
+        }
+        return removed;
+    }
+
+    /// <summary>AO3 downloads only: an imported book that isn't on AO3 (a
+    /// negative id) keeps its file, the only copy of the original with its
+    /// pictures, which nothing can download again.</summary>
+    private static IEnumerable<string> SavedEpubFiles(string? folder)
+    {
+        var dir = folder ?? LibraryFolder;
+        if (!Directory.Exists(dir)) return [];
+        try
+        {
+            return Directory.GetFiles(dir)
+                .Where(f => string.Equals(Path.GetExtension(f), ".epub", StringComparison.OrdinalIgnoreCase))
+                .Where(f => !(int.TryParse(Path.GetFileNameWithoutExtension(f), out var id) && EpubImport.IsLocalWork(id)))
+                .ToList();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return []; }
+    }
 }
+
+/// <summary>The saved EPUBs' count and total size (Settings → Storage).</summary>
+public readonly record struct EpubStorage(int Count, long Bytes);
 
 public enum ResultBadgeKind { Finished, Percent, Started, InLibrary }
 

@@ -31,6 +31,7 @@ struct CommentsView: View {
     @State private var isPosting = false
     @State private var postError: String?
     @FocusState private var composerFocused: Bool
+    @State private var didLoad = false
 
     /// Show the chapter only for multi-chapter works; single-chapter works read
     /// plainly as "Comments".
@@ -81,6 +82,8 @@ struct CommentsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Done") { dismiss() }
+                        // Closing mid-post would hide a late failure (#204).
+                        .disabled(isPosting)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -93,7 +96,20 @@ struct CommentsView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) { composer }
-            .task { await load() }
+            // Once: coming back from Log In to AO3 keeps the pages loaded.
+            .task {
+                guard !didLoad else { return }
+                didLoad = true
+                await load()
+            }
+            // Done or a swipe down never loses a long comment (#204).
+            .onAppear {
+                if draft.isEmpty { draft = CommentDrafts.shared.text(workId: workId, chapterId: chapterId) }
+            }
+            .interactiveDismissDisabled(isPosting)
+            .onChange(of: draft) { _, text in
+                CommentDrafts.shared.set(text, workId: workId, chapterId: chapterId)
+            }
         }
     }
 
@@ -126,10 +142,13 @@ struct CommentsView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "person.crop.circle.badge.questionmark")
                         .accessibilityHidden(true)
-                    Text("Log in to AO3 (Settings) to post a comment.")
+                    Text("Log in to AO3 to post a comment.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     Spacer()
+                    NavigationLink { LoginView() } label: {
+                        Text("Log In to AO3").font(.footnote.weight(.semibold))
+                    }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
@@ -216,6 +235,8 @@ struct CommentsView: View {
         defer { isPosting = false }
         do {
             try await client.postComment(workId: workId, chapterId: chapterId, text: text)
+            // Here too, not only through onChange: the sheet may have closed meanwhile.
+            CommentDrafts.shared.clearIfPosted(text, workId: workId, chapterId: chapterId)
             draft = ""
             composerFocused = false
             // Re-fetch so the new comment shows (AO3 may hold it for moderation).
@@ -223,10 +244,10 @@ struct CommentsView: View {
         } catch AO3Error.unauthorized {
             auth.markSessionExpired()
             postError = "Couldn't post: your AO3 login has expired. Log in again in Settings → AO3 Login, then post again. Your comment is still here."
-        } catch AO3Error.commentRejected(let message) {
-            postError = message
         } catch {
-            postError = "Couldn't post. \(error.localizedDescription) Your comment may be awaiting moderation, or try again."
+            // Worded by what went wrong: AO3's own refusal, or after a timeout
+            // "It may have been posted anyway…", so a retry doesn't post it twice.
+            postError = CommentPostError.message(for: error)
         }
     }
 }

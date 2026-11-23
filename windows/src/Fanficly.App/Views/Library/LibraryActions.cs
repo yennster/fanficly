@@ -79,10 +79,10 @@ internal static class LibraryActions
             if (EpubImport.IsLocalWork(work.Ao3Id)) { }
             else if (Downloading.Contains(work.Ao3Id))
                 flyout.Items.Add(new MenuFlyoutItem { Text = "Downloading…", IsEnabled = false, Icon = Symbols.Icon("arrow.down.circle") });
-            else if (WorkPersistence.EpubPath(work.Ao3Id) is not null)
+            else if (WorkPersistence.IsDownloaded(work))
                 flyout.Items.Add(Item("Remove Download", "xmark.circle", () => AfterMenu(() => RemoveDownloadAsync(work))));
             else
-                flyout.Items.Add(Item("Download for Offline", "arrow.down.circle", () => _ = DownloadAsync(work)));
+                flyout.Items.Add(Item("Download", "arrow.down.circle", () => _ = DownloadAsync(work)));
             if (!EpubImport.IsLocalWork(work.Ao3Id))
                 flyout.Items.Add(Item("Share Story...", "square.and.arrow.up", () => ShareService.ShareWork(work.Ao3Id, work.Title)));
             flyout.Items.Add(new MenuFlyoutSeparator());
@@ -239,11 +239,11 @@ internal static class LibraryActions
             }
             fetchingEpub = true;
             await AppHost.Client.DownloadEpubAsync(id);
-            MainWindow.Current?.ShowMessage("Downloaded for offline reading", title);
+            MainWindow.Current?.ShowMessage("Downloaded", title);
         }
         catch (Exception e)
         {
-            MainWindow.Current?.ShowMessage("Couldn't download for offline", DownloadFailureWording.For(textSaved, fetchingEpub, e.Message),
+            MainWindow.Current?.ShowMessage("Download failed", DownloadFailureWording.For(textSaved, fetchingEpub, e.Message),
                 InfoBarSeverity.Error);
         }
         finally

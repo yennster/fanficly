@@ -11,7 +11,7 @@ struct ReaderSettingsView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.fontFamily")) private var fontFamilyRaw: String = ReaderFontFamily.newYork.rawValue
     @AppStorage(ReaderProfile.deviceKey("reader.widthPercent")) private var widthPercent: Double = 70.0
     @AppStorage(ReaderProfile.deviceKey("reader.mode")) private var modeRaw: String = ReadingMode.continuous.rawValue
-    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.defaultFontSize
+    @AppStorage(ReaderProfile.deviceKey("reader.fontSizePt")) private var fontSizePt: Double = ReaderMetrics.systemFontSize
     @AppStorage(ReaderProfile.deviceKey("reader.lineSpacingPt")) private var lineSpacingPt: Double = ReaderMetrics.defaultLineSpacing
     @AppStorage(ReaderProfile.deviceKey("reader.paragraphSpacingPt")) private var paragraphSpacingPt: Double = ReaderMetrics.defaultParagraphSpacing
     @AppStorage(ReaderProfile.deviceKey("reader.pageTurnHaptics")) private var pageTurnHaptics: Bool = false
@@ -21,6 +21,7 @@ struct ReaderSettingsView: View {
     @AppStorage(ReaderProfile.deviceKey("reader.pageMarginPt")) private var pageMarginPt: Double = ReaderMetrics.defaultPageMargin
     @AppStorage(ReaderProfile.deviceKey("reader.kerningPt")) private var kerningPt: Double = ReaderMetrics.defaultKerning
     @AppStorage(ReaderProfile.deviceKey("reader.boldText")) private var boldText: Bool = false
+    @Environment(\.legibilityWeight) private var legibilityWeight
     @AppStorage("reader.keepScreenAwake") private var keepScreenAwake: Bool = true
     @AppStorage(VolumeButtonTurn.settingKey) private var volumeButtonsTurnPages: Bool = false
     // Global (not per-device / not part of reader profiles): a content &
@@ -197,6 +198,20 @@ struct ReaderSettingsView: View {
         var id: String { tag }
     }
 
+    /// Only an iPhone has the Taptic Engine page-turn haptics play on: an
+    /// iPad has none and Catalyst ignores them, so the toggle shows only
+    /// there. The setting itself stays in profiles and backups either way.
+    @MainActor private static var hasPageTurnHaptics: Bool {
+        UIDevice.current.userInterfaceIdiom == .phone
+    }
+
+    /// The footer's line about page-turn options.
+    private var pageTurnFooter: String {
+        Self.hasPageTurnHaptics
+            ? "Page-turn options configure haptic feedback and animations."
+            : "Page-turn animation adds a curl or slide to page flips."
+    }
+
     /// The footer's line about volume buttons; there are none on the Mac.
     private var volumeFooter: String {
         #if targetEnvironment(macCatalyst)
@@ -276,12 +291,12 @@ struct ReaderSettingsView: View {
                         .font(family.font(size: CGFloat(fontSizePt) / CGFloat(zoomScale)))
                         .lineSpacing(lineSpacingPt / zoomScale)
                         .tracking(kerningPt / zoomScale)
-                        .bold(boldText)
+                        .bold(ReaderMetrics.drawsBold(boldText, legibilityWeight: legibilityWeight))
                     Text("Edward looked up from the corner table and met her eyes. The cafe felt suddenly quieter.")
                         .font(family.font(size: CGFloat(fontSizePt) / CGFloat(zoomScale)))
                         .lineSpacing(lineSpacingPt / zoomScale)
                         .tracking(kerningPt / zoomScale)
-                        .bold(boldText)
+                        .bold(ReaderMetrics.drawsBold(boldText, legibilityWeight: legibilityWeight))
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -336,10 +351,12 @@ struct ReaderSettingsView: View {
                                  step: 2.0, unit: "pt", icon: "arrow.up.and.down.square")
                 }
 
-                Toggle(isOn: $pageTurnHaptics) {
-                    Label("Page-turn haptics", systemImage: "hand.tap")
+                if Self.hasPageTurnHaptics {
+                    Toggle(isOn: $pageTurnHaptics) {
+                        Label("Page-turn haptics", systemImage: "hand.tap")
+                    }
+                    .help("Enable small vibrations on page flips.")
                 }
-                .help("Enable small vibrations on page flips.")
 
                 Toggle(isOn: $pageTurnAnimations) {
                     Label("Page-turn animation", systemImage: "square.2.layers.3d")
@@ -360,7 +377,7 @@ struct ReaderSettingsView: View {
             } header: {
                 Text("Reading mode")
             } footer: {
-                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn; with “Pages on screen” set to two, a wide screen — iPhone Duo unfolded, iPad in landscape, the Mac — shows two pages side by side like an open book, with its own text width (“Two-page margins”). Page-turn options configure haptic feedback and animations. “Keep screen awake” holds the display on while you read and releases it as soon as you leave the reader, and while Listen is playing, so the screen can lock as usual.\(volumeFooter)")
+                Text("Continuous scrolls the whole work in one column. Swipe by chapter shows one chapter per page — scroll vertically inside it. Page-by-page formats the work into horizontal pages you swipe or tap to turn; with “Pages on screen” set to two, a wide screen — iPhone Duo unfolded, iPad in landscape, the Mac — shows two pages side by side like an open book, with its own text width (“Two-page margins”). \(pageTurnFooter) “Keep screen awake” holds the display on while you read and releases it as soon as you leave the reader, and while Listen is playing, so the screen can lock as usual.\(volumeFooter)")
             }
 
             Section {
@@ -445,10 +462,14 @@ struct ReaderSettingsView: View {
                 .accessibilityLabel("Font")
                 .help("Choose the typography for the reader.")
                 
-                Toggle(isOn: $boldText) {
+                // On, and locked on, while the system's Bold Text is on (#174).
+                Toggle(isOn: legibilityWeight == .bold ? .constant(true) : $boldText) {
                     Label("Bold text", systemImage: "bold")
                 }
-                .help("Make all reader text bold for easier reading.")
+                .disabled(legibilityWeight == .bold)
+                .help(legibilityWeight == .bold
+                      ? Text("On while Bold Text is on in your device's accessibility settings.")
+                      : Text("Make all reader text bold for easier reading."))
             }
 
             Section {
