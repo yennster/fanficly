@@ -454,6 +454,7 @@ public static class WorkFilterSheet
     private sealed class FandomPicker
     {
         private readonly AO3SearchFilters _filters;
+        private readonly StackPanel _any = new() { Spacing = 0 };
         private readonly StackPanel _picked = new() { Spacing = 0 };
         private readonly StackPanel _rows = new() { Spacing = 0 };
         private readonly TextBox _box;
@@ -487,7 +488,7 @@ public static class WorkFilterSheet
                 .Also(i => i.VerticalAlignment = VerticalAlignment.Center).Col(0));
             field.Children.Add(_box.Col(1));
             field.Children.Add(_ring.Also(r => r.VerticalAlignment = VerticalAlignment.Center).Col(2));
-            var body = UI.UI.VStack(0, _picked, field, _rows);
+            var body = UI.UI.VStack(0, _any, _picked, field, _rows);
             Root = UI.UI.Section("Fandom", [body]);
             _footer = UI.UI.Secondary("", Theme.Style.Footnote).Also(t => t.Margin = new Thickness(4, 4, 4, 0));
             Root.Children.Add(_footer);
@@ -504,6 +505,7 @@ public static class WorkFilterSheet
         private void Render()
         {
             _box.PlaceholderText = _filters.FandomNames.Count == 0 ? "Search for a fandom" : "Add another fandom";
+            RenderAny();
             _picked.Children.Clear();
             foreach (var name in _filters.FandomNames.ToList())
             {
@@ -543,6 +545,53 @@ public static class WorkFilterSheet
             if (rowHadFocus) _box.Focus(FocusState.Keyboard);
         }
 
+        /// <summary>No fandom is a choice too: ticked while nothing is picked, and a
+        /// one-click way back to every fandom once something is.</summary>
+        private void RenderAny()
+        {
+            var anyHadFocus = _box.XamlRoot is { } root
+                && FocusManager.GetFocusedElement(root) is DependencyObject focused
+                && _any.Children.Contains(focused as UIElement);
+            _any.Children.Clear();
+            if (_filters.FandomNames.Count == 0)
+            {
+                var row = UI.UI.Label("checkmark.circle.fill", "Any fandom", foreground: Theme.Accent, maxLines: UI.UI.LineLimit(2));
+                row.Margin = new Thickness(14, 8, 14, 8);
+                AutomationProperties.SetName(row, "Any fandom, selected");
+                AutomationProperties.SetAutomationId(row, "filters.fandom.any");
+                _any.Children.Add(row);
+            }
+            else
+            {
+                var clear = new Button
+                {
+                    Content = UI.UI.Label("circle", "Any fandom", maxLines: UI.UI.LineLimit(2)),
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    HorizontalContentAlignment = HorizontalAlignment.Left,
+                    Background = Theme.Transparent,
+                    BorderBrush = Theme.Transparent,
+                    Padding = new Thickness(14, 8, 14, 8),
+                    CornerRadius = new CornerRadius(0),
+                };
+                AutomationProperties.SetName(clear, "Any fandom");
+                AutomationProperties.SetHelpText(clear, "Removes the picked fandoms");
+                AutomationProperties.SetAutomationId(clear, "filters.fandom.any");
+                clear.Click += (_, _) => ClearAll();
+                _any.Children.Add(clear);
+            }
+            if (anyHadFocus) _box.Focus(FocusState.Keyboard);
+        }
+
+        private void ClearAll()
+        {
+            _filters.FandomNames = [];
+            _matches = [];
+            _box.Text = ""; // raises TextChanged → StartLookup → Render
+            Render();
+            Shell.MainWindow.Current.Announce("Searching any fandom");
+            _box.Focus(FocusState.Programmatic);
+        }
+
         /// <summary>Matches while typing; popular fandoms when the box is empty.</summary>
         private IReadOnlyList<string> Rows()
         {
@@ -556,7 +605,7 @@ public static class WorkFilterSheet
         private string Footer()
         {
             if (_filters.FandomNames.Count == 0 && Term.Length == 0)
-                return "Popular fandoms are shown. Type to search AO3's list of fandoms.";
+                return "Searching every fandom. Pick one below or type to search AO3's list of fandoms.";
             if (Term.Length > 0 && _rows.Children.Count == 0)
             {
                 if (_lookupFailed) return "Couldn't reach AO3's fandom list. Press Enter to use what you typed.";
@@ -565,7 +614,7 @@ public static class WorkFilterSheet
                     ? "Keep typing to search AO3's list of fandoms."
                     : "No AO3 fandom matches. Press Enter to use what you typed.";
             }
-            return "Works must be tagged with every fandom you pick.";
+            return "Works must be tagged with every fandom you pick. Choose Any fandom to search them all.";
         }
 
         /// <param name="fromAO3">A row from AO3's list (or the curated popular names),
