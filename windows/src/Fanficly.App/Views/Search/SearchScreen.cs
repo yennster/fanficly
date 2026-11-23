@@ -995,7 +995,7 @@ public sealed class SearchScreen : Screen
     private async Task ShowFiltersAsync()
     {
         var sortWhenOpened = _active.SortColumn;
-        var edited = await WorkFilterSheet.ShowAsync(_active);
+        var edited = await WorkFilterSheet.ShowAsync(_active, editsFandom: true);
         if (edited is null) return;
         _active = edited;
         if (_active.SortColumn != sortWhenOpened) _userPickedSort = true;

@@ -13,16 +13,18 @@ namespace Fanficly.App.Views.Search;
 /// The AO3-style filter panel (WorkFilterSheet): edits a copy of an
 /// <see cref="AO3SearchFilters"/> — saved filters, sort, ratings, warnings,
 /// categories, status, word count, tags, language and AO3's other search
-/// fields. The fandom (or any other field the caller fixed) is preserved:
-/// Reset and applying a saved filter keep it. Returns the edited filters on
-/// Apply, or null when cancelled (Esc / Cancel).
+/// fields. Browse fixes the fandom, so the sheet keeps it (Reset and applying a
+/// saved filter too); Search passes <c>editsFandom</c> and gets a Fandom section
+/// to pick fandoms from AO3's list (the Swift <c>FandomPickerSection</c>), which
+/// Reset clears. Returns the edited filters on Apply, or null when cancelled
+/// (Esc / Cancel).
 /// </summary>
 /// <remarks>Browse's filtered works can reuse it: <c>await WorkFilterSheet.ShowAsync(filters)</c>.</remarks>
 public static class WorkFilterSheet
 {
-    public static async Task<AO3SearchFilters?> ShowAsync(AO3SearchFilters filters)
+    public static async Task<AO3SearchFilters?> ShowAsync(AO3SearchFilters filters, bool editsFandom = false)
     {
-        var editor = new FilterEditor(filters.Clone());
+        var editor = new FilterEditor(filters.Clone(), editsFandom);
         var dialog = new ContentDialog
         {
             Title = "Filters",
@@ -47,8 +49,10 @@ public static class WorkFilterSheet
         dialog.Resources["ContentDialogMaxHeight"] = 900.0;
         AutomationProperties.SetAutomationId(dialog, "filters.sheet");
         var result = await Dialogs.ShowAsync(dialog);
+        editor.StopLookups();
         if (result != ContentDialogResult.Primary) return null;
         editor.CommitText();
+        editor.CommitPendingFandom();
         return editor.Filters;
     }
 
@@ -58,6 +62,11 @@ public static class WorkFilterSheet
         public AO3SearchFilters Filters { get; private set; }
         public ScrollViewer Root { get; }
         private readonly Border _host = new();
+        private readonly bool _editsFandom;
+        private FandomPicker? _fandomPicker;
+        /// <summary>The fandom box's text, owned here (Swift's <c>fandomTerm</c>) so a
+        /// rebuild (applying or saving a filter) keeps it; only Reset clears it.</summary>
+        private string _fandomTerm = "";
 
         // Editable text mirrors for the comma-separated tag fields.
         private string _relationships = "", _characters = "", _freeforms = "", _exclude = "";
@@ -70,9 +79,10 @@ public static class WorkFilterSheet
             ("ja", "Japanese"), ("ko", "Korean"),
         ];
 
-        public FilterEditor(AO3SearchFilters filters)
+        public FilterEditor(AO3SearchFilters filters, bool editsFandom)
         {
             Filters = filters;
+            _editsFandom = editsFandom;
             SeedText();
             Root = new ScrollViewer
             {
@@ -88,7 +98,10 @@ public static class WorkFilterSheet
 
         private StackPanel Build()
         {
+            _fandomPicker?.Stop();
+            _fandomPicker = _editsFandom ? new FandomPicker(Filters, _fandomTerm, t => _fandomTerm = t) : null;
             var stack = UI.UI.VStack(14,
+                _fandomPicker?.Root,
                 SavedFiltersSection(),
                 SortSection(),
                 UI.UI.Section("Rating", SearchEnums.AllRatings.Select(r => (UIElement)Check(r.DisplayName(), Filters.Ratings, r))),
@@ -386,6 +399,12 @@ public static class WorkFilterSheet
             else if (wc.Length > 0 && wc.All(char.IsAsciiDigit)) { _wordsFrom = wc; _wordsTo = wc; } // an exact count
         }
 
+        /// <summary>Apply adds words left in the fandom box, as Enter would, so a
+        /// typed fandom isn't silently dropped (Swift's <c>committedDraft</c>).
+        /// Only on Apply: saving a filter doesn't store the fandom.</summary>
+        public void CommitPendingFandom() =>
+            Filters.FandomNames = SearchSuggestions.AddingFandom(_fandomTerm, Filters.FandomNames);
+
         public void CommitText()
         {
             Filters.RelationshipNames = SplitTags(_relationships);
@@ -411,12 +430,218 @@ public static class WorkFilterSheet
             };
         }
 
+        public void StopLookups() => _fandomPicker?.Stop();
+
         public void Reset()
         {
-            var fresh = new AO3SearchFilters { FandomNames = [.. Filters.FandomNames] };
+            var fresh = _editsFandom ? new AO3SearchFilters() : new AO3SearchFilters { FandomNames = [.. Filters.FandomNames] };
+            _fandomTerm = "";
             Filters = fresh;
             SeedText();
             Rebuild();
+        }
+    }
+
+    /// <summary>The Fandom section (Search only; Swift's <c>FandomPickerSection</c>):
+    /// pick fandoms from AO3's own list instead of having to know a fandom's exact
+    /// name. Typing asks AO3's fandom autocomplete (debounced 350 ms, one throttled
+    /// request, memoized in <see cref="TagSuggestionCache"/> under
+    /// <c>fandom:&lt;term&gt;</c>); an empty field offers the popular fandoms. Only a
+    /// clicked row, Enter, or Apply with words left in the box adds a fandom (typed
+    /// words go through <see cref="TagResolver"/> on search): nothing is guessed
+    /// from the search box. Picked fandoms go in <c>work_search[fandom_names]</c>, so a work
+    /// must be in every one. Rows update in place, so the box keeps focus.</summary>
+    private sealed class FandomPicker
+    {
+        private readonly AO3SearchFilters _filters;
+        private readonly StackPanel _picked = new() { Spacing = 0 };
+        private readonly StackPanel _rows = new() { Spacing = 0 };
+        private readonly TextBox _box;
+        private readonly ProgressRing _ring = new() { IsActive = false, Width = 16, Height = 16, Visibility = Visibility.Collapsed };
+        private readonly TextBlock _footer;
+        private IReadOnlyList<string> _matches = [];
+        private bool _looking, _lookupFailed;
+        private CancellationTokenSource? _lookup;
+        /// <summary>Read once: the live Popular snapshot, else the curated seed.</summary>
+        private readonly IReadOnlyList<string> _popular =
+            PopularStore.Cached()?.Fandoms is { Count: > 0 } live ? live : PopularTags.Fandoms;
+        public StackPanel Root { get; }
+
+        public FandomPicker(AO3SearchFilters filters, string term, Action<string> termChanged)
+        {
+            _filters = filters;
+            _box = new TextBox { IsSpellCheckEnabled = false, MinWidth = 200, Text = term };
+            AutomationProperties.SetName(_box, "Fandom");
+            AutomationProperties.SetAutomationId(_box, "filters.fandom.field");
+            _box.TextChanged += (_, _) => { termChanged(_box.Text); StartLookup(); };
+            _box.KeyDown += (_, e) =>
+            {
+                // An empty box leaves Enter to the dialog's default button (Apply).
+                if (e.Key != VirtualKey.Enter || Term.Length == 0) return;
+                e.Handled = true;
+                Pick(_box.Text, fromAO3: false);
+            };
+            var field = UI.UI.Grid("Auto,*,Auto", columnSpacing: 8);
+            field.Padding = new Thickness(14, 8, 14, 8);
+            field.Children.Add(UI.UI.Icon("magnifyingglass", 14, Theme.TextSecondary).A11yHidden()
+                .Also(i => i.VerticalAlignment = VerticalAlignment.Center).Col(0));
+            field.Children.Add(_box.Col(1));
+            field.Children.Add(_ring.Also(r => r.VerticalAlignment = VerticalAlignment.Center).Col(2));
+            var body = UI.UI.VStack(0, _picked, field, _rows);
+            Root = UI.UI.Section("Fandom", [body]);
+            _footer = UI.UI.Secondary("", Theme.Style.Footnote).Also(t => t.Margin = new Thickness(4, 4, 4, 0));
+            Root.Children.Add(_footer);
+            // A term kept across a rebuild looks its matches up again (cached).
+            if (Term.Length > 0) StartLookup(); else Render();
+        }
+
+        private string Term => _box.Text.Trim();
+
+        public void Stop() => _lookup?.Cancel();
+
+
+
+        private void Render()
+        {
+            _box.PlaceholderText = _filters.FandomNames.Count == 0 ? "Search for a fandom" : "Add another fandom";
+            _picked.Children.Clear();
+            foreach (var name in _filters.FandomNames.ToList())
+            {
+                var row = UI.UI.Grid("*,Auto", columnSpacing: 8);
+                row.Padding = new Thickness(14, 6, 6, 6);
+                row.Children.Add(UI.UI.Label("checkmark.circle.fill", name, foreground: Theme.Accent, maxLines: UI.UI.LineLimit(2))
+                    .Also(l => l.VerticalAlignment = VerticalAlignment.Center).Col(0));
+                var remove = UI.UI.IconButton("xmark.circle.fill", $"Remove {name}", () => Remove(name), 14);
+                row.Children.Add(remove.Also(b => b.VerticalAlignment = VerticalAlignment.Center).Col(1));
+                _picked.Children.Add(row);
+            }
+            // A row with keyboard focus is about to go: keep focus in the section.
+            var rowHadFocus = _box.XamlRoot is { } root
+                && FocusManager.GetFocusedElement(root) is DependencyObject focused
+                && _rows.Children.Contains(focused as UIElement);
+            _rows.Children.Clear();
+            foreach (var name in Rows())
+            {
+                var add = new Button
+                {
+                    Content = UI.UI.Label("plus.circle", name, maxLines: UI.UI.LineLimit(2)),
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    HorizontalContentAlignment = HorizontalAlignment.Left,
+                    Background = Theme.Transparent,
+                    BorderBrush = Theme.Transparent,
+                    Padding = new Thickness(14, 8, 14, 8),
+                    CornerRadius = new CornerRadius(0),
+                };
+                AutomationProperties.SetName(add, $"Add fandom: {name}");
+                var picked = name;
+                // Only AO3's own answers are known canonical; the curated names
+                // still go through TagResolver.
+                add.Click += (_, _) => Pick(picked, fromAO3: _matches.Contains(picked));
+                _rows.Children.Add(add);
+            }
+            _footer.Text = Footer();
+            if (rowHadFocus) _box.Focus(FocusState.Keyboard);
+        }
+
+        /// <summary>Matches while typing; popular fandoms when the box is empty.</summary>
+        private IReadOnlyList<string> Rows()
+        {
+            if (Term.Length == 0)
+            {
+                return SearchSuggestions.PopularFandomPicks(_popular, _filters.FandomNames, _filters.FandomNames.Count == 0 ? 6 : 0);
+            }
+            return SearchSuggestions.FandomPicks(Term, _matches, _filters.FandomNames);
+        }
+
+        private string Footer()
+        {
+            if (_filters.FandomNames.Count == 0 && Term.Length == 0)
+                return "Popular fandoms are shown. Type to search AO3's list of fandoms.";
+            if (Term.Length > 0 && _rows.Children.Count == 0)
+            {
+                if (_lookupFailed) return "Couldn't reach AO3's fandom list. Press Enter to use what you typed.";
+                if (_looking) return "Looking up fandoms on AO3…";
+                return new System.Globalization.StringInfo(Term).LengthInTextElements < 2
+                    ? "Keep typing to search AO3's list of fandoms."
+                    : "No AO3 fandom matches. Press Enter to use what you typed.";
+            }
+            return "Works must be tagged with every fandom you pick.";
+        }
+
+        /// <param name="fromAO3">A row from AO3's list (or the curated popular names),
+        /// so already canonical; typed words still go through <see cref="TagResolver"/>.</param>
+        private void Pick(string name, bool fromAO3)
+        {
+            var updated = SearchSuggestions.AddingFandom(name, _filters.FandomNames);
+            if (updated.Count == _filters.FandomNames.Count) return;
+            if (fromAO3) TagResolver.NoteCanonical(name.Trim(), AO3AutocompleteField.Fandom);
+            _filters.FandomNames = updated;
+            _matches = [];
+            _box.Text = ""; // raises TextChanged → StartLookup → Render
+            Render();
+            Shell.MainWindow.Current.Announce($"Added fandom: {name.Trim()}");
+            _box.Focus(FocusState.Programmatic);
+        }
+
+        private void Remove(string name)
+        {
+            _filters.FandomNames = _filters.FandomNames.Where(f => f != name).ToList();
+            Render();
+            Shell.MainWindow.Current.Announce($"Removed fandom: {name}");
+            _box.Focus(FocusState.Programmatic);
+        }
+
+        /// <summary>Debounced lookup; restarts (cancelling the last) on every edit.</summary>
+        private void StartLookup()
+        {
+            _lookup?.Cancel();
+            _lookup = new CancellationTokenSource();
+            _matches = [];
+            _lookupFailed = false;
+            var phrase = Term;
+            SetLooking(new System.Globalization.StringInfo(phrase).LengthInTextElements >= 2);
+            Render();
+            if (_looking) _ = LookUpAsync(phrase, _lookup.Token);
+        }
+
+        private async Task LookUpAsync(string phrase, CancellationToken ct)
+        {
+            // Wait for a pause in typing: every lookup is a throttled AO3 request.
+            try { await Task.Delay(350, ct); }
+            catch (OperationCanceledException) { return; }
+            var key = "fandom:" + phrase;
+            IReadOnlyList<string> names;
+            if (TagSuggestionCache.Shared.Value(key) is { } cached)
+            {
+                names = cached;
+            }
+            else
+            {
+                try { names = await AppHost.Client.AutocompleteAsync(AO3AutocompleteField.Fandom, phrase, ct); }
+                catch
+                {
+                    if (!ct.IsCancellationRequested)
+                    {
+                        _lookupFailed = true;
+                        SetLooking(false);
+                        Render();
+                        Shell.MainWindow.Current.Announce("Couldn't reach AO3's fandom list");
+                    }
+                    return;
+                }
+                TagSuggestionCache.Shared.Set(names, key);
+            }
+            if (ct.IsCancellationRequested) return;
+            _matches = names;
+            SetLooking(false);
+            Render();
+        }
+
+        private void SetLooking(bool on)
+        {
+            _looking = on;
+            _ring.IsActive = on;
+            _ring.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
         }
     }
 }
