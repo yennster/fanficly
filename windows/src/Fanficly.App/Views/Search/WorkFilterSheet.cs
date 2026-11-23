@@ -455,6 +455,8 @@ public static class WorkFilterSheet
     {
         private readonly AO3SearchFilters _filters;
         private readonly StackPanel _any = new() { Spacing = 0 };
+        /// <summary>Whether <see cref="_any"/> shows the ticked row; null before the first render.</summary>
+        private bool? _anyTicked;
         private readonly StackPanel _picked = new() { Spacing = 0 };
         private readonly StackPanel _rows = new() { Spacing = 0 };
         private readonly TextBox _box;
@@ -545,19 +547,23 @@ public static class WorkFilterSheet
             if (rowHadFocus) _box.Focus(FocusState.Keyboard);
         }
 
-        /// <summary>No fandom is a choice too: ticked while nothing is picked, and a
-        /// one-click way back to every fandom once something is.</summary>
+        /// <summary>No fandom is a choice too: ticked while nothing is picked or typed,
+        /// and a one-click way back to every fandom otherwise. Rebuilt only when that
+        /// flips, so a lookup finishing doesn't take focus off the button.</summary>
         private void RenderAny()
         {
+            var ticked = _filters.FandomNames.Count == 0 && Term.Length == 0;
+            if (_anyTicked == ticked) return;
+            _anyTicked = ticked;
             var anyHadFocus = _box.XamlRoot is { } root
                 && FocusManager.GetFocusedElement(root) is DependencyObject focused
                 && _any.Children.Contains(focused as UIElement);
             _any.Children.Clear();
-            if (_filters.FandomNames.Count == 0)
+            if (ticked)
             {
-                var row = UI.UI.Label("checkmark.circle.fill", "Any fandom", foreground: Theme.Accent, maxLines: UI.UI.LineLimit(2));
-                row.Margin = new Thickness(14, 8, 14, 8);
-                AutomationProperties.SetName(row, "Any fandom, selected");
+                var label = UI.UI.Label("checkmark.circle.fill", "Any fandom", foreground: Theme.Accent, maxLines: UI.UI.LineLimit(2));
+                // A plain Grid has no automation peer: the group carries the name and id.
+                var row = new Library.AccessibleGroup("Any fandom, selected", label) { Margin = new Thickness(14, 8, 14, 8) };
                 AutomationProperties.SetAutomationId(row, "filters.fandom.any");
                 _any.Children.Add(row);
             }
