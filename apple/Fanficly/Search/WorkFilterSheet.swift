@@ -463,7 +463,7 @@ struct FandomPickerSection: View {
         return "Works must be tagged with every fandom you pick."
     }
 
-    /// `fromAO3`: a row from AO3's list (or the curated popular names), so
+    /// `fromAO3`: a row from AO3's own autocomplete answer, so
     /// already canonical; typed words still go through `TagResolver`.
     private func pick(_ name: String, fromAO3: Bool) {
         let updated = SearchSuggestions.addingFandom(name, to: fandoms)
