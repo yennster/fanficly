@@ -1,0 +1,25 @@
+{
+  "_comment": "The App Clip's experiences in App Store Connect (#292), applied by bin/app-clip.py experiences through the App Clip workflow (.github/workflows/app-clip.yml). The card's header image is cut from screenshots/creative/header-3840x1646.png. Subtitles are at most 56 characters, titles 30. reviewInvocationUrls (optional) are fanficly.app work links App Review can open the clip with.",
+  "default": {
+    "action": "OPEN",
+    "subtitle": "Read a shared fanfic, no install needed",
+    "locale": "en-US"
+  },
+  "reviewInvocationUrls": [],
+  "advanced": [
+    {
+      "link": "https://fanficly.app/works",
+      "action": "OPEN",
+      "businessCategory": "BOOKS",
+      "defaultLanguage": "EN",
+      "isPoweredBy": false,
+      "localizations": [
+        {
+          "language": "EN",
+          "title": "Read on Fanficly",
+          "subtitle": "Read a shared fanfic, no install needed"
+        }
+      ]
+    }
+  ]
+}

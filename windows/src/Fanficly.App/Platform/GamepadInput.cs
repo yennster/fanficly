@@ -185,8 +185,15 @@ public static class GamepadInput
         if (window.XamlRoot is { } xamlRoot && FocusManager.GetFocusedElement(xamlRoot) is Control mainFocus)
             _focusBeforePopup = new(mainFocus);
 
+        // Behind the 17+ gate the controller only moves focus around the gate
+        // and presses its buttons (View still toggles full screen, as F11 does):
+        // no page turns, Back or tab changes (#203).
+        if (Views.Account.ContentSafetyViews.AgeGateActive
+            && key is not (VirtualKey.GamepadDPadUp or VirtualKey.GamepadDPadDown or VirtualKey.GamepadDPadLeft
+                or VirtualKey.GamepadDPadRight or VirtualKey.GamepadA or VirtualKey.GamepadView)) return;
+
         // The screen gets first refusal (the reader turns pages on D-pad / triggers).
-        if (screen?.HandleKey(key, VirtualKeyModifiers.None) == true) return;
+        if (!Views.Account.ContentSafetyViews.AgeGateActive && screen?.HandleKey(key, VirtualKeyModifiers.None) == true) return;
 
         switch (key)
         {
