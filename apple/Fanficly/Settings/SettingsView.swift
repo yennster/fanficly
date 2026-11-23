@@ -64,6 +64,7 @@ struct SettingsView: View {
             } footer: {
                 Text("Shows a progress bar and percentage on works you've started. Your reading position is always saved — this only hides the display.")
             }
+            NotificationsSettingsSection()
             Section("iCloud Sync") {
                 Toggle("Sync Library to iCloud", isOn: $iCloudSyncEnabled)
                     .onChange(of: iCloudSyncEnabled) { _, newValue in
