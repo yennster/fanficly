@@ -92,6 +92,10 @@ shared container. Keep cancellation effective and never retry write requests.
 that alone leaves the old tab's pushed screen on top. Compact cold launch starts at the
 sidebar; resizing preserves the current detail. Work/author list destinations
 are shared through `.workAndAuthorDestinations()` in `SearchView.swift`.
+Recently Viewed and Subscriptions push `SavedFirstWorkRoute` (in
+`SavedWorkReader.swift`): a story saved in the Library opens `SavedWorkReader`,
+like the Library, so offline text reads offline, and any other opens
+`WorkDetailView` (#175). Notification routes stay live on purpose.
 Root-level resume and notification routes have special cold/warm handling; read
 their detailed sections before changing path or tab selection. Import accepts
 share-extension URLs, dropped URLs/text, and paste providers. Folder and search
