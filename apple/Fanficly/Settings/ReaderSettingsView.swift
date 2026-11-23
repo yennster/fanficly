@@ -42,6 +42,8 @@ struct ReaderSettingsView: View {
     @State private var renameText = ""
     /// Made on the first Play Sample, not every time the view is built.
     @State private var sample: SpeechSample?
+    /// Loaded off the main thread once (see `VoiceCatalog`).
+    @State private var voices: [VoiceOption] = VoiceCatalog.cached ?? []
 
     init() {
         ReaderProfile.migrateLegacySettingsIfNeeded()
@@ -166,15 +168,6 @@ struct ReaderSettingsView: View {
 
     private var showingRenameAlert: Binding<Bool> {
         Binding(get: { renamingProfile != nil }, set: { if !$0 { renamingProfile = nil } })
-    }
-
-    /// On-device voices for the current language (fall back to all installed
-    /// voices if the language has none), sorted by name.
-    private var voices: [AVSpeechSynthesisVoice] {
-        let all = AVSpeechSynthesisVoice.speechVoices()
-        let lang = Locale.current.language.languageCode?.identifier ?? "en"
-        let matching = all.filter { $0.language.hasPrefix(lang) }
-        return (matching.isEmpty ? all : matching).sorted { $0.name < $1.name }
     }
 
     /// The footer's line about volume buttons; there are none on the Mac.
@@ -357,8 +350,12 @@ struct ReaderSettingsView: View {
             Section {
                 Picker(selection: $ttsVoiceId) {
                     Text("System default").tag("")
-                    ForEach(voices, id: \.identifier) { voice in
-                        Text("\(voice.name) (\(voice.language))").tag(voice.identifier)
+                    ForEach(voices) { voice in
+                        Text("\(voice.name) (\(voice.language))").tag(voice.id)
+                    }
+                    // Until the list is in, the chosen voice still has a row.
+                    if !ttsVoiceId.isEmpty, !voices.contains(where: { $0.id == ttsVoiceId }) {
+                        Text(voices.isEmpty ? "Loading voices…" : "Voice not installed").tag(ttsVoiceId)
                     }
                 } label: {
                     Label("Voice", systemImage: "person.wave.2")
@@ -471,6 +468,9 @@ struct ReaderSettingsView: View {
             Button("OK", role: .cancel) { }
         }
         .onDisappear { sample?.stop() }
+        .task {
+            if voices.isEmpty { voices = await VoiceCatalog.load() }
+        }
     }
 
     private func queueBackup() {
@@ -526,6 +526,40 @@ struct ReaderSettingsView: View {
         }
         .padding(.vertical, 2)
         .help("Adjust the \(title.lowercased())")
+    }
+}
+
+/// One row of the Voice picker: plain values, so the list can be built off
+/// the main thread.
+struct VoiceOption: Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String
+    let language: String
+}
+
+/// The installed voices, read once per launch. `speechVoices()` can block for
+/// seconds (far longer on a cold simulator), and Reader settings used to call
+/// it on every redraw, so opening Theme & typography at the largest text
+/// sizes stalled the main thread long enough to hang UI tests.
+enum VoiceCatalog {
+    @MainActor static private(set) var cached: [VoiceOption]?
+
+    @MainActor static func load() async -> [VoiceOption] {
+        if let cached { return cached }
+        let lang = Locale.current.language.languageCode?.identifier ?? "en"
+        let list = await Task.detached(priority: .userInitiated) {
+            options(from: AVSpeechSynthesisVoice.speechVoices().map {
+                VoiceOption(id: $0.identifier, name: $0.name, language: $0.language)
+            }, language: lang)
+        }.value
+        cached = list
+        return list
+    }
+
+    /// Voices for `language` (all of them if it has none), sorted by name.
+    static func options(from all: [VoiceOption], language: String) -> [VoiceOption] {
+        let matching = all.filter { $0.language.hasPrefix(language) }
+        return (matching.isEmpty ? all : matching).sorted { $0.name < $1.name }
     }
 }
 
