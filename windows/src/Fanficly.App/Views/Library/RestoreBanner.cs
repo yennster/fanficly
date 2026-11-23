@@ -156,8 +156,8 @@ public static class RestoreBanner
             detail.Visibility = p.StoppedDetail is null ? Visibility.Collapsed : Visibility.Visible;
             bar.Visibility = p.StoppedDetail is null ? Visibility.Visible : Visibility.Collapsed;
             group.AccessibleName = p.Finished
-                ? (p.StoppedDetail is { } why ? $"{p.FinishedTitle}. {why}" : $"Downloaded {p.Done} of {p.Total} stories")
-                : $"Downloading stories, {p.Done} of {p.Total} done";
+                ? (p.StoppedDetail is { } why ? $"{p.FinishedTitle}. {why}" : $"Downloaded {p.Done} of {Plural.Stories(p.Total)}")
+                : $"Downloading {Plural.Stories(p.Total)}, {p.Done} done";
             cancel.Visibility = p.Finished ? Visibility.Collapsed : Visibility.Visible;
             AutomationProperties.SetHelpText(cancel, Center.Kind == RestoreDownloadCenter.DownloadKind.Restore
                 ? "Stops the downloads. Everything else stays restored."

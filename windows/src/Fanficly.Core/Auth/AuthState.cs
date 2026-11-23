@@ -13,11 +13,13 @@ public sealed class AuthState : INotifyPropertyChanged
     private bool _isAuthenticating;
     private string? _lastError;
     private bool _isSessionExpired;
+    private bool _isSessionSaved;
 
     public AuthState(ICookieVault? vault = null)
     {
         _vault = vault ?? CredentialStore.Shared;
         _username = _vault.StoredUsername();
+        _isSessionSaved = _vault is not KeyedCookieVault { IsSessionUnsaved: true };
     }
 
     /// <summary>Forgets what the PC keeps about the account that just left (#159):
@@ -60,6 +62,19 @@ public sealed class AuthState : INotifyPropertyChanged
         get => _isSessionExpired;
         private set => Set(ref _isSessionExpired, value);
     }
+
+    /// <summary>False while the sign-in couldn't be written to this PC (#210):
+    /// it works now but is lost at the next launch unless a later save gets
+    /// through. The app updates it from the vault on the UI thread
+    /// (<see cref="KeyedCookieVault.SessionSaveChanged"/>).</summary>
+    public bool IsSessionSaved
+    {
+        get => _isSessionSaved;
+        set => Set(ref _isSessionSaved, value);
+    }
+
+    /// <summary>What Settings says about a session that won't survive a restart.</summary>
+    public const string SessionOnlyMessage = "You're signed in for this session only. Fanficly couldn't save your AO3 sign-in on this PC, and keeps trying.";
 
     /// <summary>Signed in with a live session: what account features need.</summary>
     public bool HasSession => IsLoggedIn && !IsSessionExpired;
@@ -110,7 +125,10 @@ public sealed class AuthState : INotifyPropertyChanged
                 ForgetAccount?.Invoke();
             }
             Username = login;
-            _vault.SetUsername(login);
+            // AO3 signed us in either way: a failed write leaves the vault holding
+            // the name for this run and retrying with the next cookie save (#210).
+            try { _vault.SetUsername(login); }
+            catch (Exception) { }
             IsSessionExpired = false;
         }
         catch (AO3Exception e) when (e.Kind == AO3ErrorKind.LoginFailed)

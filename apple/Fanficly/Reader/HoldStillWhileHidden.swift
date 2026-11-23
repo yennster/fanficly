@@ -1,9 +1,8 @@
 import SwiftUI
 import UIKit
 
-/// Keeps the reader's page exactly where it was while its controls are
-/// hidden, as Apple Books does: a tap shows or hides the controls over a page
-/// that never moves or re-flows.
+/// Keeps the reader's page where it was while its controls are hidden: a tap
+/// shows or hides the controls over a page that doesn't slide about.
 ///
 /// Hiding the controls also hides the status bar, and on iPhone Duo empties
 /// the toolbar strip on the side. Either can hand the reader a slightly
@@ -15,6 +14,14 @@ import UIKit
 /// changes (the narration bar coming or going), and the content lays out for
 /// the new area.
 ///
+/// With `fillsTop` (page-by-page), hidden controls give the page their room at
+/// the top: the held frame reaches up to where the status bar ends with the
+/// controls up (`minimumTop` at least), so the empty navigation bar's band
+/// fills with text instead of staying a blank margin. It's worked out from the
+/// controls-up frame and window, never from the live area, so the status bar
+/// going doesn't move it. Page-by-page measures its pages for the taller area
+/// and re-paginates keeping the page's first words (PageAreaTracker).
+///
 /// Showing the controls brings the status bar back a layout pass or two after
 /// `hidden` turns false, so the hold lasts until the area is the controls-up
 /// one again (or `releaseTimeout` passes), or the page would slide.
@@ -22,6 +29,9 @@ struct HoldStillWhileHidden: ViewModifier {
     let hidden: Bool
     /// What else shapes the area: the hold lets go when it changes.
     let layout: AnyHashable
+    /// Whether the content takes the controls' room at the top while they're
+    /// hidden (see above).
+    var fillsTop: Bool = false
 
     @State private var window = HostWindow()
     /// The content's frame (global) with the controls up, and what it was
@@ -36,9 +46,17 @@ struct HoldStillWhileHidden: ViewModifier {
         var frame: CGRect
         var window: CGSize
         var layout: AnyHashable
+        /// The window's top safe area with the controls up: where the status
+        /// bar (or the sensor housing) ends.
+        var windowTop: CGFloat
     }
 
     static let releaseTimeout: Duration = .milliseconds(500)
+
+    /// The least room a filled top keeps above the page (the page adds its
+    /// own margin) where the window reports no top safe area: an iPhone in
+    /// landscape, a window with no status bar.
+    static let minimumTop: CGFloat = 16
 
     func body(content: Content) -> some View {
         GeometryReader { geo in
@@ -53,7 +71,15 @@ struct HoldStillWhileHidden: ViewModifier {
                 .onChange(of: live, initial: true) { _, frame in
                     if releasing, let shown, !Self.same(frame, shown.frame) { return }
                     releasing = false
-                    if !hidden { record(frame) }
+                    if !hidden {
+                        record(frame)
+                    } else if let shown, abs(shown.window.width - window.size.width) >= 1
+                                || abs(shown.window.height - window.size.height) >= 1 {
+                        // The window changed size with the controls hidden (a
+                        // rotation, a fold): hold the new area, so the top
+                        // still fills (fillsTop) rather than leaving the band.
+                        record(frame)
+                    }
                 }
                 .onChange(of: hidden) { _, isHidden in
                     guard !isHidden else {
@@ -67,6 +93,7 @@ struct HoldStillWhileHidden: ViewModifier {
                             // The window wasn't found yet when the
                             // controls-up frame was recorded.
                             shown?.window = window.size
+                            shown?.windowTop = window.safeTop
                         }
                         return
                     }
@@ -92,11 +119,19 @@ struct HoldStillWhileHidden: ViewModifier {
               shown.layout == layout,
               abs(size.width - shown.window.width) < 1, abs(size.height - shown.window.height) < 1
         else { return nil }
-        return shown.frame
+        guard hidden, fillsTop else { return shown.frame }
+        return Self.filledTop(shown.frame, windowTop: shown.windowTop)
+    }
+
+    /// `frame` grown upward to `windowTop` (`minimumTop` at least) when it
+    /// starts below that: the room the hidden controls leave at the top.
+    static func filledTop(_ frame: CGRect, windowTop: CGFloat) -> CGRect {
+        let top = min(frame.minY, max(windowTop, minimumTop))
+        return CGRect(x: frame.minX, y: top, width: frame.width, height: frame.maxY - top)
     }
 
     private func record(_ frame: CGRect) {
-        shown = Snapshot(frame: frame, window: window.size, layout: layout)
+        shown = Snapshot(frame: frame, window: window.size, layout: layout, windowTop: window.safeTop)
     }
 
     private static func same(_ a: CGRect, _ b: CGRect) -> Bool {
@@ -112,6 +147,8 @@ struct HoldStillWhileHidden: ViewModifier {
     /// The area's frame at the last layout, for when the release times out.
     var lastLive: CGRect = .zero
     var size: CGSize { window?.bounds.size ?? .zero }
+    /// The window's top safe area (the status bar's or sensor housing's).
+    var safeTop: CGFloat { window?.safeAreaInsets.top ?? 0 }
 }
 
 private struct HostWindowFinder: UIViewRepresentable {

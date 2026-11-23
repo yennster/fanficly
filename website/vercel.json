@@ -26,7 +26,22 @@
       "permanent": true
     }
   ],
+  "rewrites": [
+    {
+      "source": "/works/:path*",
+      "destination": "/work"
+    }
+  ],
   "headers": [
+    {
+      "source": "/.well-known/apple-app-site-association",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/json"
+        }
+      ]
+    },
     {
       "source": "/assets/(.*)",
       "headers": [
