@@ -537,7 +537,7 @@ struct RootView: View {
     }
     
     private func parseWorkId(from url: URL) -> Int? {
-        WorkLink.workId(from: url)
+        AO3WorkLink.workId(from: url)
     }
 
     @discardableResult
@@ -573,7 +573,7 @@ struct RootView: View {
 
 /// A work's id from a link to it: an AO3 work URL (any page of it), or one
 /// of Fanficly's own `fanficly://` links. Drops, pastes and Open AO3 Link use it.
-enum WorkLink {
+enum AO3WorkLink {
     static func workId(from url: URL) -> Int? {
         var targetURL = url
         if url.scheme == "fanficly" {
@@ -908,8 +908,8 @@ extension View {
                 guard case .success(let patterns) = result, patterns.contains(\.probableWebURL) else { return }
                 Task { @MainActor in
                     let pasteboard = UIPasteboard.general
-                    let candidates = (pasteboard.urls ?? []).compactMap { WorkLink.workId(from: $0) }
-                        + (pasteboard.strings ?? []).compactMap { WorkLink.workId(fromText: $0) }
+                    let candidates = (pasteboard.urls ?? []).compactMap { AO3WorkLink.workId(from: $0) }
+                        + (pasteboard.strings ?? []).compactMap { AO3WorkLink.workId(fromText: $0) }
                     if let workId = candidates.first { action(workId) }
                 }
             }
@@ -1072,7 +1072,7 @@ struct OpenAO3LinkModifier: ViewModifier {
                     .autocorrectionDisabled()
                     .keyboardType(.URL)
                 Button("Open") {
-                    if let workId = WorkLink.workId(fromText: text) {
+                    if let workId = AO3WorkLink.workId(fromText: text) {
                         open(workId)
                     } else {
                         showingNotAWork = true
