@@ -73,7 +73,16 @@ the Microsoft Store, and a refresh of every platform's screenshots and docs.
    archive with its build-run number, so iOS and Mac get different ones (the
    GitHub release lists both). They count up across every Xcode Cloud build,
    so they stay above the 1.11.1 Mac build (141) that the runner built.
-2. The What's New text writes itself: the Release run's first job runs
+2. Write the release's What's New in `changelog/whats-new.json` (see
+   `changelog/README.md`) in the same PR, or one before it: an entry at the
+   top whose `version` is the new `MARKETING_VERSION`, with its `date` and
+   three to five short themes (an icon, a title, one line; `platforms` for a
+   theme only one app has). Both apps show it once after the update and keep
+   it in Settings → About → What's New, and the store notes come from it
+   (`• Title: detail` per theme), so the stores and the apps say the same
+   thing. Keep it short and grouped by theme, not every merged PR.
+3. Without an entry, the What's New text writes itself (and the apps show no
+   pop-up for the release): the Release run's first job runs
    `apple/bin/release-notes.py`, which reads everything that landed on `main`
    since the last `v*` tag (every merged PR, any commit pushed without one,
    and every issue closed as completed) and writes into
@@ -90,7 +99,7 @@ the Microsoft Store, and a refresh of every platform's screenshots and docs.
    `.github/release-notes.tsv` (`none` leaves it out). Check the notes before
    releasing with `GITHUB_REPOSITORY=yennster/fanficly apple/bin/release-notes.py`
    (needs `gh`), or on the run's summary page.
-3. Run **Release** with lane `release` and platform `all`:
+4. Run **Release** with lane `release` and platform `all`:
    ```bash
    gh workflow run release.yml -f lane=release -f platform=all
    ```
@@ -110,13 +119,13 @@ the Microsoft Store, and a refresh of every platform's screenshots and docs.
      every app.
    Platform `apple`, `ios`, `mac` or `windows` releases just that part, with
    no art refresh.
-4. Once the Store assets upload has finished, Submit for Review in App Store
+5. Once the Store assets upload has finished, Submit for Review in App Store
    Connect (iOS and macOS). No lane submits there, and submitting earlier
    locks the version before the new art is on it. The `release` and
    `metadata_only` lanes set the version to release automatically, so it
    goes live to everyone as soon as App Review approves it (they also turn
    off phased release).
-5. Update any doc text that changed with the release on the
+6. Update any doc text that changed with the release on the
    `release-docs/vX.Y.Z` branch, and merge it with a PR.
 
 Lane `beta` builds and uploads to TestFlight only, with the same notes as

@@ -17,6 +17,9 @@ apple/        the Apple app: project.yml, Fanficly*/, bin/ (its scripts), docs/R
 windows/      the Windows app: Fanficly.Windows.slnx, src/, tests/, store/, ROADMAP.md,
               docs/screenshots/ (README pictures, written by windows-screenshots.yml)
 website/      fanficly.app; Vercel builds it from main and skips unchanged builds
+changelog/    whats-new.json: every release's What's New, bundled into both apps (the pop-up
+              after an update, Settings → About → What's New) and the source of the store
+              notes; changelog/README.md
 CITATION.cff  machine-readable app summary (GitHub's "Cite this repository", search and AI indexes)
 PRIVACY.md    the Apple app's privacy policy; it stays at the root because the App Store
               listing and the website link to this URL
@@ -37,4 +40,7 @@ PRIVACY.md    the Apple app's privacy policy; it stays at the root because the A
 - **The Swift app is the reference.** The Windows app ports its behavior; don't change `apple/` from a Windows PR.
 - **Releases are the maintainer's.** Don't push `windows-v*` or `v*` tags, upload to a store, or change store metadata, version numbers or signing unless the maintainer asks.
 - **Describe the app the same way everywhere.** The root README's opening and FAQ, `CITATION.cff`, `website/index.html` (its meta tags and FAQ data) and `website/llms.txt` are what search engines and AI answer engines quote. When a fact in one changes (platforms, minimum OS, price, a headline feature), update the others in the same PR.
+- **One What's New for every app.** A release's highlights go in `changelog/whats-new.json`
+  (short, grouped by theme, `platforms` for a theme only one app has); both apps show it and
+  the store notes come from it. Shared like this file, it can change with either app.
 - **Roadmap IDs are permanent.** Apple items are `RM-001` up, Windows items `RM-101` up; never renumber or reuse one.

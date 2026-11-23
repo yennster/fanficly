@@ -85,6 +85,19 @@ public sealed partial class SmokeTests
         Assert.Equal("Source on GitHub", s.ById("settings.source")?.Name);
     }
 
+    /// <summary>Settings → What's New (#422) lists the releases from the shared changelog.</summary>
+    [Fact]
+    public void WhatsNewOpensFromSettings()
+    {
+        using var s = AppSession.Launch(Laptop);
+        Assert.True(s.OpenTab("settings"));
+        var row = s.ById("settings.whatsNew");
+        Assert.NotNull(row);
+        s.Activate(row!);
+        Assert.True(s.WaitForHeader("What's New"), $"What's New's header reads \"{s.HeaderTitle}\".");
+        Assert.NotNull(s.ById("settings.whatsNew.page", 8));
+    }
+
     [Fact]
     public void LaunchArgumentOpensATab()
     {

@@ -18,10 +18,10 @@ name: CI
 on:
   push:
     branches: [main]
-    paths: ['apple/**', '.github/workflows/ci.yml', 'website/vercel.json', 'website/.well-known/**']
+    paths: ['apple/**', 'changelog/**', '.github/workflows/ci.yml', 'website/vercel.json', 'website/.well-known/**']
   pull_request:
     branches: [main]
-    paths: ['apple/**', '.github/workflows/ci.yml', 'website/vercel.json', 'website/.well-known/**']
+    paths: ['apple/**', 'changelog/**', '.github/workflows/ci.yml', 'website/vercel.json', 'website/.well-known/**']
   workflow_dispatch:
 
 permissions:
@@ -93,8 +93,9 @@ jobs:
           fi
           files=$(git diff --name-only "$(git merge-base "$BASE" "$HEAD")" "$HEAD")
           echo "$files"
-          # The app's code, tests, project and the CI that tests them.
-          app='^(apple/(Fanficly|FanficlyClip|FanficlyShare|FanficlyWidget|FanficlyTests|FanficlyUITests|Fanficly\.xcodeproj|ci_scripts)/|apple/(project\.yml|Signing\.xcconfig|bin/ci-simulator\.py)$|\.github/workflows/ci\.yml$)'
+          # The app's code, tests, project and the CI that tests them, and
+          # the What's New changelog the app bundles (#422).
+          app='^(changelog/whats-new\.json$|apple/(Fanficly|FanficlyClip|FanficlyShare|FanficlyWidget|FanficlyTests|FanficlyUITests|Fanficly\.xcodeproj|ci_scripts)/|apple/(project\.yml|Signing\.xcconfig|bin/ci-simulator\.py)$|\.github/workflows/ci\.yml$)'
           # What ReaderLayoutTests exercise: the reader and the views that
           # host it, the window and layout, the reader's settings, the demo
           # chapters they paginate, the strings they match, the project and

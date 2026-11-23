@@ -25,6 +25,13 @@ out). Each line is the pull request's title, tidied ("RM-003 (Windows): " and
 "Release note: <text>" in a pull request's description replaces its title;
 "Release note: none" leaves it out.
 
+The release's What's New entry in ../changelog/whats-new.json (the one whose
+version is project.yml's MARKETING_VERSION), when there is one, is the store
+text instead: one "• Title: detail" line per theme that applies to the app. It is
+also what the apps show in their What's New pop-up and Settings, so the stores
+and the apps say the same short, theme-based thing. Without an entry the notes
+fall back to the pull request lines above, with a warning.
+
 NOTES (environment), when set, replaces both store texts (the Windows one is cut
 to the Microsoft Store's 1,500 characters).
 
@@ -93,6 +100,23 @@ def bullets(lines: list[str], limit: int, fallback: str = FALLBACK) -> str:
             break
         out.append(f"• {line}")
     return "\n".join(out) if out else fallback
+
+
+def changelog_entry(version: str, changelog: Path = Path("../changelog/whats-new.json")) -> dict | None:
+    """The What's New entry for `version`, or None."""
+    if not changelog.exists():
+        return None
+    for release in json.loads(changelog.read_text())["releases"]:
+        if release["version"] == version:
+            return release
+    return None
+
+
+def changelog_lines(release: dict, app: str) -> list[str]:
+    """The entry's themes for one app ("apple" or "windows") as store lines."""
+    default = release.get("platforms") or ["apple", "windows"]
+    return [f"{t['title']}: {t['detail']}" for t in release["themes"]
+            if app in (t.get("platforms") or default)]
 
 
 def main() -> None:
@@ -192,11 +216,19 @@ def main() -> None:
                 lines.append(line)
         return lines
 
+    version = (re.search(r'^ *MARKETING_VERSION: "([^"]+)"', Path("project.yml").read_text(), re.M) or [None, ""])[1]
+    entry = changelog_entry(version)
     notes = os.environ.get("NOTES", "").strip()
     if notes:
         apple_text = notes[:APPLE_LIMIT]
         windows_text = notes if len(notes) <= WINDOWS_LIMIT else notes[:WINDOWS_LIMIT - 1].rstrip() + "…"
+    elif entry:
+        print(f"Store notes from {version}'s What's New entry in changelog/whats-new.json", file=sys.stderr)
+        apple_text = bullets(changelog_lines(entry, "apple"), APPLE_LIMIT)
+        windows_text = bullets(changelog_lines(entry, "windows"), WINDOWS_LIMIT, fallback="")
     else:
+        print(f"::warning::No What's New entry for {version} in changelog/whats-new.json: the apps won't "
+              "show a What's New pop-up for it, and the store notes list the merged pull requests.", file=sys.stderr)
         apple_text = bullets(store_lines("Apple"), APPLE_LIMIT)
         # Empty when nothing changed on Windows: the Store release then keeps
         # windows/store/listing/en-us/release_notes.txt.

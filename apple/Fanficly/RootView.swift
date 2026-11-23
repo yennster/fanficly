@@ -61,6 +61,8 @@ struct RootView: View {
     /// handoff doesn't replace it (#292).
     @State private var linkOpenedThisLaunch = false
     @State private var statusBar = StatusBarVisibility()
+    /// What's New after an update (#422).
+    @State private var whatsNewRelease: WhatsNewRelease?
 
     var body: some View {
         let scale = CGFloat(UIZoom.clamped(zoomScale))
@@ -264,6 +266,37 @@ struct RootView: View {
                     guard !linkOpenedThisLaunch else { return }
                     openResumeRoute(ResumeWorkRoute(workId: workId, anchor: nil))
                 }
+            }
+            // What's New (#422), once, the first launch after an update. A
+            // fresh install only notes the newest release as seen (the 17+
+            // confirmation wasn't given before this launch), and a launch
+            // that opened a story or a link waits for the next plain launch.
+            // The wait lets a widget, notification, link or the clip's
+            // handoff land first.
+            .task {
+                guard !FanficlyApp.isDemoMode, !FanficlyApp.isTestMode, !WhatsNewLaunch.checked else { return }
+                WhatsNewLaunch.checked = true
+                let defaults = UserDefaults.standard
+                let isExistingUser = defaults.bool(forKey: ContentControl.ageConfirmedKey)
+                try? await Task.sleep(for: .seconds(2))
+                let openedIntoContent = !detailPath.isEmpty || pendingResumeRoute != nil
+                    || pendingNotificationRoute != nil || pendingFolderRoute != nil
+                    || importingWorkId != nil || linkOpenedThisLaunch || !afterAgeGate.isEmpty
+                switch WhatsNew.launchDecision(newest: WhatsNew.releases.first,
+                                               lastSeen: defaults.string(forKey: WhatsNew.lastSeenKey),
+                                               isExistingUser: isExistingUser,
+                                               openedIntoContent: openedIntoContent) {
+                case .nothing:
+                    break
+                case .record(let version):
+                    defaults.set(version, forKey: WhatsNew.lastSeenKey)
+                case .show(let release):
+                    defaults.set(release.version, forKey: WhatsNew.lastSeenKey)
+                    whatsNewRelease = release
+                }
+            }
+            .sheet(item: $whatsNewRelease) { release in
+                WhatsNewSheet(release: release)
             }
             // The "Continue Reading" App Shortcut. `initial: true` catches a run
             // that launched the app before this view existed.

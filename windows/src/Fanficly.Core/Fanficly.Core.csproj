@@ -12,6 +12,10 @@
     <PackageReference Include="Microsoft.Data.Sqlite" />
   </ItemGroup>
   <ItemGroup>
+    <!-- What's New (#422): the changelog both apps share, at the repo root. -->
+    <EmbeddedResource Include="..\..\..\changelog\whats-new.json" LogicalName="Fanficly.Core.whats-new.json" Link="Settings\whats-new.json" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="Fanficly.Core.Tests" />
   </ItemGroup>
 </Project>

@@ -1,4 +1,5 @@
 using Fanficly.App.Shell;
+using Fanficly.Core;
 using Fanficly.App.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -40,10 +41,21 @@ public sealed partial class App : Application, IXamlMetadataProvider
         Window.Activate();
         Window.MaximizeIfItWasMaximized();
         if (AppHost.IsIconGallery) Window.Navigator.Push(new Views.Shared.IconGalleryScreen());
+        // Before the 17+ gate can be answered: given already means an update,
+        // not a fresh install (What's New, #422).
+        var isExistingUser = KeyValueStores.Default.GetBool(Fanficly.Core.ContentControl.AgeConfirmedKey);
         _ = Views.Account.ContentSafetyViews.EnsureAgeGateAsync();
 
-        AppHost.HandleActivation(AppInstance.GetCurrent().GetActivatedEventArgs(), isLaunch: true);
+        var activation = AppInstance.GetCurrent().GetActivatedEventArgs();
+        AppHost.HandleActivation(activation, isLaunch: true);
+        Views.Settings.WhatsNewDialog.CheckAtLaunch(isExistingUser, openedIntoContent: !IsPlainLaunch(activation));
     }
+
+    /// <summary>Started from Start, the taskbar or a shortcut, with no link,
+    /// file, share, jump-list or notification arguments.</summary>
+    private static bool IsPlainLaunch(AppActivationArguments args) =>
+        args.Kind == ExtendedActivationKind.Launch
+        && (args.Data is not Windows.ApplicationModel.Activation.ILaunchActivatedEventArgs l || string.IsNullOrWhiteSpace(l.Arguments));
 
     /// <summary>A second launch redirected here (see Program).</summary>
     internal static void OnRedirectedActivation(AppActivationArguments args)
