@@ -42,8 +42,8 @@ struct ReaderSettingsView: View {
     @State private var renameText = ""
     /// Made on the first Play Sample, not every time the view is built.
     @State private var sample: SpeechSample?
-    /// Loaded off the main thread once (see `VoiceCatalog`).
-    @State private var voices: [VoiceOption] = VoiceCatalog.cached ?? []
+    /// Loaded off the main thread (see `VoiceCatalog`), not on every redraw.
+    @State private var voiceGroups: [VoiceGroup] = VoiceCatalog.cached ?? []
 
     init() {
         ReaderProfile.migrateLegacySettingsIfNeeded()
@@ -168,6 +168,16 @@ struct ReaderSettingsView: View {
 
     private var showingRenameAlert: Binding<Bool> {
         Binding(get: { renamingProfile != nil }, set: { if !$0 { renamingProfile = nil } })
+    }
+
+    /// A stored voice that isn't installed here (removed, or synced from the
+    /// Windows app) shows as Automatic, which is what Listen falls back to.
+    /// So does any voice until the list has loaded.
+    private func voiceSelection(_ groups: [VoiceGroup]) -> Binding<String> {
+        let installed = Set(groups.flatMap { $0.voices.map(\.id) })
+        return Binding(
+            get: { installed.contains(ttsVoiceId) ? ttsVoiceId : "" },
+            set: { ttsVoiceId = $0 })
     }
 
     /// The footer's line about volume buttons; there are none on the Mac.
@@ -348,14 +358,14 @@ struct ReaderSettingsView: View {
             }
 
             Section {
-                Picker(selection: $ttsVoiceId) {
-                    Text("System default").tag("")
-                    ForEach(voices) { voice in
-                        Text("\(voice.name) (\(voice.language))").tag(voice.id)
-                    }
-                    // Until the list is in, the chosen voice still has a row.
-                    if !ttsVoiceId.isEmpty, !voices.contains(where: { $0.id == ttsVoiceId }) {
-                        Text(voices.isEmpty ? "Loading voices…" : "Voice not installed").tag(ttsVoiceId)
+                Picker(selection: voiceSelection(voiceGroups)) {
+                    Text("Automatic").tag("")
+                    ForEach(voiceGroups) { group in
+                        Section(group.name) {
+                            ForEach(group.voices) { voice in
+                                Text("\(voice.name) (\(voice.language))").tag(voice.id)
+                            }
+                        }
                     }
                 } label: {
                     Label("Voice", systemImage: "person.wave.2")
@@ -398,7 +408,7 @@ struct ReaderSettingsView: View {
                 .accessibilityIdentifier("settings.reader.playSample")
                 .help("Hear the selected voice at this speed.")
             } footer: {
-                Text("Play Sample reads a few lines in the chosen voice at this speed. Choose Listen to chapter in the reader’s Aa menu to have a chapter read aloud. The moon in the Listen bar sets a sleep timer that pauses after 15, 30 or 60 minutes, or at the end of the chapter. To use highly realistic neural voices (including Siri voices or your own cloned Personal Voice), download them in iOS Settings → Accessibility → Spoken Content → Voices (or set up Personal Voice under Settings → Accessibility → Personal Voice). System voices run entirely on-device and are completely free.")
+                Text("Play Sample reads a few lines in the chosen voice at this speed. Choose Listen to chapter in the reader’s Aa menu to have a chapter read aloud. The moon in the Listen bar sets a sleep timer that pauses after 15, 30 or 60 minutes, or at the end of the chapter. On Automatic, each work is read by a voice for its language, or by your system voice when the work is in your language or no voice for its language is installed. To use highly realistic neural voices (including Siri voices or your own cloned Personal Voice), download them in iOS Settings → Accessibility → Spoken Content → Voices (or set up Personal Voice under Settings → Accessibility → Personal Voice). System voices run entirely on-device and are completely free.")
             }
 
             Section("Theme") {
@@ -469,7 +479,12 @@ struct ReaderSettingsView: View {
         }
         .onDisappear { sample?.stop() }
         .task {
-            if voices.isEmpty { voices = await VoiceCatalog.load() }
+            if voiceGroups.isEmpty { voiceGroups = await VoiceCatalog.load() }
+        }
+        // A voice downloaded in iOS Settings (the footer says how) shows up
+        // when the reader comes back.
+        .onReceive(NotificationCenter.default.publisher(for: AVSpeechSynthesizer.availableVoicesDidChangeNotification)) { _ in
+            Task { voiceGroups = await VoiceCatalog.load(refresh: true) }
         }
     }
 
@@ -537,29 +552,45 @@ struct VoiceOption: Identifiable, Hashable, Sendable {
     let language: String
 }
 
-/// The installed voices, read once per launch. `speechVoices()` can block for
-/// seconds (far longer on a cold simulator), and Reader settings used to call
-/// it on every redraw, so opening Theme & typography at the largest text
-/// sizes stalled the main thread long enough to hang UI tests.
-enum VoiceCatalog {
-    @MainActor static private(set) var cached: [VoiceOption]?
+/// The Voice picker's languages, each with its voices.
+struct VoiceGroup: Identifiable, Hashable, Sendable {
+    let tag: String
+    let name: String
+    let voices: [VoiceOption]
+    var id: String { tag }
+}
 
-    @MainActor static func load() async -> [VoiceOption] {
-        if let cached { return cached }
-        let lang = Locale.current.language.languageCode?.identifier ?? "en"
+/// The installed voices, read once per launch (and again when iOS says the
+/// set changed). `speechVoices()` can block for seconds, far longer on a cold
+/// simulator, and Reader settings used to call it on every redraw, so opening
+/// Theme & typography at the largest text sizes stalled the main thread long
+/// enough to hang UI tests.
+enum VoiceCatalog {
+    @MainActor static private(set) var cached: [VoiceGroup]?
+
+    @MainActor static func load(refresh: Bool = false) async -> [VoiceGroup] {
+        if !refresh, let cached { return cached }
         let list = await Task.detached(priority: .userInitiated) {
-            options(from: AVSpeechSynthesisVoice.speechVoices().map {
+            groups(from: AVSpeechSynthesisVoice.speechVoices().map {
                 VoiceOption(id: $0.identifier, name: $0.name, language: $0.language)
-            }, language: lang)
+            }, systemLanguage: AVSpeechSynthesisVoice.currentLanguageCode(),
+               languageName: { Locale.current.localizedString(forIdentifier: $0) })
         }.value
         cached = list
         return list
     }
 
-    /// Voices for `language` (all of them if it has none), sorted by name.
-    static func options(from all: [VoiceOption], language: String) -> [VoiceOption] {
-        let matching = all.filter { $0.language.hasPrefix(language) }
-        return (matching.isEmpty ? all : matching).sorted { $0.name < $1.name }
+    /// Every voice grouped by language (#184): the system voice's language
+    /// first, then the rest by name, each group sorted by voice name.
+    static func groups(from all: [VoiceOption], systemLanguage: String,
+                       languageName: (String) -> String?) -> [VoiceGroup] {
+        Dictionary(grouping: all, by: \.language)
+            .map { tag, voices in
+                VoiceGroup(tag: tag,
+                           name: languageName(tag) ?? tag,
+                           voices: voices.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending })
+            }
+            .sorted { SpeechLanguage.listsBefore(($0.tag, $0.name), ($1.tag, $1.name), systemLanguage: systemLanguage) }
     }
 }
 
