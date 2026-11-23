@@ -74,6 +74,33 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(all.count, 1)
     }
 
+    // MARK: - Importing a shared link (#176)
+
+    func test_saveImported_keepsEveryChapterAndFollows() throws {
+        let ctx = try makeContext()
+        let work = WorkPersistence.saveImported(payload: payload(id: 30, chapters: 3), into: ctx)
+        XCTAssertEqual(work.chapters.count, 3, "the fetched text is kept for offline reading")
+        XCTAssertTrue(work.isFollowed)
+        XCTAssertNotNil(work.followedAt)
+        XCTAssertEqual(work.lastSeenChapterCount, 3)
+    }
+
+    func test_saveImported_keepsWhenASavedWorkWasSavedAndFollowed() throws {
+        let ctx = try makeContext()
+        let first = WorkPersistence.saveImported(payload: payload(id: 31, chapters: 2), into: ctx)
+        let savedAt = Date(timeIntervalSince1970: 1_000_000)
+        let followedAt = Date(timeIntervalSince1970: 2_000_000)
+        first.savedAt = savedAt
+        first.followedAt = followedAt
+        try ctx.save()
+
+        let again = WorkPersistence.saveImported(payload: payload(id: 31, chapters: 4), into: ctx)
+        XCTAssertEqual(again.savedAt, savedAt)
+        XCTAssertEqual(again.followedAt, followedAt)
+        XCTAssertEqual(again.chapters.count, 4)
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<Work>()).count, 1)
+    }
+
     // MARK: - Spotlight
 
     func test_spotlightIdentifier_roundTrips() {
@@ -153,18 +180,131 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(w.chapters.count, 4, "metadata upsert must keep existing chapters")
     }
 
-    func test_toggleFollow() throws {
+    // MARK: Save to Library / Remove from Library (#168)
+
+    /// A removal that runs records its sync tombstone in the real defaults;
+    /// put them back so later backup tests don't see it.
+    private func keepingDeletionMarkers(_ body: () throws -> Void) rethrows {
+        let defaults = UserDefaults.standard
+        let key = iCloudSyncManager.deletionsKey
+        let original = defaults.object(forKey: key)
+        defer { defaults.set(original, forKey: key) }
+        try body()
+    }
+
+    func test_toggleLibrary_savesAndFollows() throws {
         let ctx = try makeContext()
+        let undo = UndoCenter(delay: .seconds(60))
         let summary = payload(id: 9, chapters: 1).summary
-        XCTAssertFalse(WorkPersistence.isFollowed(workId: 9, in: ctx))
+        XCTAssertFalse(WorkPersistence.isInLibrary(workId: 9, in: ctx, undo: undo))
 
-        let nowFollowed = WorkPersistence.toggleFollow(summary: summary, into: ctx)
-        XCTAssertTrue(nowFollowed)
+        XCTAssertTrue(WorkPersistence.toggleLibrary(summary: summary, into: ctx, undo: undo))
+        XCTAssertTrue(WorkPersistence.isInLibrary(workId: 9, in: ctx, undo: undo))
         XCTAssertTrue(WorkPersistence.isFollowed(workId: 9, in: ctx))
+    }
 
-        let nowUnfollowed = WorkPersistence.toggleFollow(summary: summary, into: ctx)
-        XCTAssertFalse(nowUnfollowed)
-        XCTAssertFalse(WorkPersistence.isFollowed(workId: 9, in: ctx))
+    func test_toggleLibrary_removesTheStoryFullyWhenTheToastCloses() throws {
+        try keepingDeletionMarkers {
+            let ctx = try makeContext()
+            let undo = UndoCenter(delay: .seconds(60))
+            // A story with offline text, as a download leaves it.
+            _ = WorkPersistence.upsert(payload: payload(id: 9, chapters: 3), into: ctx)
+            try ctx.save()
+            let summary = payload(id: 9, chapters: 3).summary
+
+            XCTAssertFalse(WorkPersistence.toggleLibrary(summary: summary, into: ctx, undo: undo))
+            // Gone from view at once, but nothing is deleted until the toast closes.
+            XCTAssertFalse(WorkPersistence.isInLibrary(workId: 9, in: ctx, undo: undo))
+            XCTAssertEqual(try ctx.fetchCount(FetchDescriptor<Work>()), 1)
+
+            undo.commitPending()
+            XCTAssertEqual(try ctx.fetchCount(FetchDescriptor<Work>()), 0)
+            XCTAssertEqual(try ctx.fetchCount(FetchDescriptor<Chapter>()), 0)
+        }
+    }
+
+    func test_toggleLibrary_unfollowedStoryIsRemovedToo() throws {
+        try keepingDeletionMarkers {
+            let ctx = try makeContext()
+            let undo = UndoCenter(delay: .seconds(60))
+            // Downloaded without following: still in the Library, so the action
+            // offers to remove it rather than to save it again.
+            _ = WorkPersistence.upsert(payload: payload(id: 9, chapters: 2), into: ctx)
+            try ctx.save()
+            XCTAssertFalse(WorkPersistence.isFollowed(workId: 9, in: ctx))
+            XCTAssertTrue(WorkPersistence.isInLibrary(workId: 9, in: ctx, undo: undo))
+
+            XCTAssertFalse(WorkPersistence.toggleLibrary(summary: payload(id: 9, chapters: 2).summary, into: ctx, undo: undo))
+            undo.commitPending()
+            XCTAssertEqual(try ctx.fetchCount(FetchDescriptor<Work>()), 0)
+        }
+    }
+
+    func test_toggleLibrary_undoKeepsEverything() throws {
+        let ctx = try makeContext()
+        let undo = UndoCenter(delay: .seconds(60))
+        _ = WorkPersistence.upsert(payload: payload(id: 9, chapters: 3), into: ctx)
+        try ctx.save()
+
+        _ = WorkPersistence.toggleLibrary(summary: payload(id: 9, chapters: 3).summary, into: ctx, undo: undo)
+        undo.undo()
+
+        XCTAssertTrue(WorkPersistence.isInLibrary(workId: 9, in: ctx, undo: undo))
+        let work = try XCTUnwrap(try ctx.fetch(FetchDescriptor<Work>()).first)
+        XCTAssertEqual(work.chapters.count, 3)
+    }
+
+    func test_setInLibrary_staleSaveNeverRemoves() throws {
+        let ctx = try makeContext()
+        let undo = UndoCenter(delay: .seconds(60))
+        _ = WorkPersistence.upsert(payload: payload(id: 9, chapters: 3), into: ctx)
+        try ctx.save()
+
+        // A row still showing "Save" for a story saved elsewhere keeps it.
+        XCTAssertTrue(WorkPersistence.setInLibrary(true, summary: payload(id: 9, chapters: 3).summary, into: ctx, undo: undo))
+        XCTAssertNil(undo.pending)
+        XCTAssertTrue(WorkPersistence.isInLibrary(workId: 9, in: ctx, undo: undo))
+    }
+
+    func test_resultBadge_waitingRemovalShowsNotInLibrary() throws {
+        let ctx = try makeContext()
+        let undo = UndoCenter(delay: .seconds(60))
+        let summary = payload(id: 9, chapters: 3).summary
+        WorkPersistence.saveToLibrary(summary: summary, into: ctx, undo: undo)
+        XCTAssertEqual(WorkPersistence.resultBadges(for: [summary], in: ctx, undo: undo)[9], .inLibrary)
+
+        WorkPersistence.setInLibrary(false, summary: summary, into: ctx, undo: undo)
+        XCTAssertNil(WorkPersistence.resultBadges(for: [summary], in: ctx, undo: undo)[9])
+        undo.undo()
+        XCTAssertEqual(WorkPersistence.resultBadges(for: [summary], in: ctx, undo: undo)[9], .inLibrary)
+    }
+
+    func test_toggleLibrary_savingAgainCancelsTheWaitingRemoval() throws {
+        let ctx = try makeContext()
+        let undo = UndoCenter(delay: .seconds(60))
+        _ = WorkPersistence.upsert(payload: payload(id: 9, chapters: 3), into: ctx)
+        try ctx.save()
+        let summary = payload(id: 9, chapters: 3).summary
+
+        XCTAssertFalse(WorkPersistence.toggleLibrary(summary: summary, into: ctx, undo: undo))
+        XCTAssertTrue(WorkPersistence.toggleLibrary(summary: summary, into: ctx, undo: undo))
+        XCTAssertNil(undo.pending)
+        undo.commitPending()
+
+        let work = try XCTUnwrap(try ctx.fetch(FetchDescriptor<Work>()).first)
+        XCTAssertEqual(work.chapters.count, 3, "saving again keeps the offline text")
+        XCTAssertTrue(work.isFollowed)
+    }
+
+    // Recently Viewed and Subscriptions open a saved story's Library copy (#175).
+    func test_savedWork_findsOnlyTheLibraryCopy() throws {
+        let ctx = try makeContext()
+        XCTAssertNil(WorkPersistence.savedWork(ao3Id: 11, in: ctx))
+        _ = WorkPersistence.upsert(payload: payload(id: 11, chapters: 2), into: ctx)
+        let saved = try XCTUnwrap(WorkPersistence.savedWork(ao3Id: 11, in: ctx))
+        XCTAssertEqual(saved.ao3Id, 11)
+        XCTAssertEqual(saved.chapters.count, 2, "the saved copy carries its offline text")
+        XCTAssertNil(WorkPersistence.savedWork(ao3Id: 12, in: ctx))
     }
 
     // MARK: Result-row badges (RM-002)
@@ -1401,6 +1541,77 @@ final class PersistenceTests: XCTestCase {
         let chapters = work.chapters.sorted { $0.index < $1.index }
         XCTAssertEqual(chapters.count, 3)
         XCTAssertEqual(chapters.map(\.aoId), [900, 901, 902])
+    }
+
+    /// A chapter's summary and notes (#181) survive saving, the backup and a
+    /// restore on another device.
+    func test_chapterNotesSurviveSaveBackupAndRestore() async throws {
+        let url = makeTempBackupURL()
+        iCloudSyncManager.overrideBackupURL = url
+        defer {
+            iCloudSyncManager.overrideBackupURL = nil
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        let base = payload(id: 1, chapters: 2)
+        let chapters = [
+            AO3ChapterPayload(index: 1, title: "Ch 1", bodyHTML: "<p>Body 1</p>", aoId: 900,
+                              summaryHTML: "<p>Sum</p>", notesHTML: "<p>CW: storm</p>"),
+            AO3ChapterPayload(index: 2, title: "Ch 2", bodyHTML: "<p>Body 2</p>", aoId: 901,
+                              endNotesHTML: "<p>Thanks</p>"),
+        ]
+        let full = try makeContext()
+        let saved = WorkPersistence.upsert(payload: AO3WorkPayload(summary: base.summary, chapters: chapters), into: full)
+        let savedChapters = saved.chapters.sorted { $0.index < $1.index }.map(\.payload)
+        XCTAssertEqual(savedChapters[0].summaryHTML, "<p>Sum</p>")
+        XCTAssertEqual(savedChapters[0].notesHTML, "<p>CW: storm</p>")
+        XCTAssertNil(savedChapters[0].endNotesHTML)
+        XCTAssertEqual(savedChapters[1].endNotesHTML, "<p>Thanks</p>")
+        iCloudSyncManager.shared.backupToiCloud(context: full)
+
+        let device = try makeContext()
+        device.insert(Work(ao3Id: 1, title: "T", authorName: "A"))
+        try device.save()
+        let success = await iCloudSyncManager.shared.restoreFromiCloud(context: device)
+        XCTAssertTrue(success)
+        let work = try XCTUnwrap(try device.fetch(FetchDescriptor<Work>()).first)
+        let restored = work.chapters.sorted { $0.index < $1.index }
+        XCTAssertEqual(restored.map(\.summaryHTML), ["<p>Sum</p>", nil])
+        XCTAssertEqual(restored.map(\.notesHTML), ["<p>CW: storm</p>", nil])
+        XCTAssertEqual(restored.map(\.endNotesHTML), [nil, "<p>Thanks</p>"])
+    }
+
+    /// Two devices holding the same chapters, one downloaded before #181 (no
+    /// notes): the merge keeps the notes either way round, so the two don't
+    /// rewrite each other's backup forever.
+    func test_backupMergeFillsMissingChapterNotes() {
+        let withNotes = [ChapterBackup(index: 1, title: "Ch 1", bodyHTML: "<p>a</p>", aoId: 1, notesHTML: "<p>CW</p>"),
+                         ChapterBackup(index: 2, title: "Ch 2", bodyHTML: "<p>b</p>", aoId: 2, endNotesHTML: "<p>End</p>")]
+        let without = withNotes.map { ChapterBackup(index: $0.index, title: $0.title, bodyHTML: $0.bodyHTML, aoId: $0.aoId) }
+        for merged in [iCloudSyncManager.mergedChapters(local: without, other: withNotes),
+                       iCloudSyncManager.mergedChapters(local: withNotes, other: without)] {
+            XCTAssertEqual(merged.map(\.notesHTML), ["<p>CW</p>", nil])
+            XCTAssertEqual(merged.map(\.endNotesHTML), [nil, "<p>End</p>"])
+        }
+        // More chapters still win whole.
+        let longer = without + [ChapterBackup(index: 3, title: "Ch 3", bodyHTML: "<p>c</p>", aoId: 3)]
+        XCTAssertEqual(iCloudSyncManager.mergedChapters(local: withNotes, other: longer).count, 3)
+    }
+
+    /// Backups from before #181 (and from a Windows app that doesn't know the
+    /// fields yet) carry chapters without notes; they still decode.
+    func test_chapterBackupWithoutNotesStillDecodes() throws {
+        let json = #"{"index":1,"title":"Ch 1","bodyHTML":"<p>x</p>","aoId":7}"#
+        let chapter = try JSONDecoder().decode(ChapterBackup.self, from: Data(json.utf8))
+        XCTAssertEqual(chapter.bodyHTML, "<p>x</p>")
+        XCTAssertEqual(chapter.aoId, 7)
+        XCTAssertNil(chapter.summaryHTML)
+        XCTAssertNil(chapter.notesHTML)
+        XCTAssertNil(chapter.endNotesHTML)
+        // And a chapter without notes writes none of the keys.
+        let encoded = try JSONEncoder().encode(chapter)
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(Set(object.keys), ["index", "title", "bodyHTML", "aoId"])
     }
 
     /// Restore also runs as a background launch sync now, so it must be a

@@ -36,6 +36,7 @@ on:
           - signing_setup   # create Apple certificates/profiles in the match repo
           - tag_only        # tag vX.Y.Z on `sha` + GitHub release, no build or store step
           - attach_build    # an App Store version for a build already uploaded (`build`, `notes`, `art_run`), no archive
+          - accessibility   # publish the App Store accessibility declarations (apple/fastlane/accessibility.json), no build
       platform:
         description: Platform (all = iPhone, iPad, Mac and Windows)
         type: choice

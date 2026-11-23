@@ -153,6 +153,44 @@ public class SearchSuggestionsTests
         Assert.NotNull(cache.Value("phrase 199"));
     }
 
+    // MARK: - Fandom picker (Filters sheet)
+
+    [Fact]
+    public void FandomPicks_PutTheKnownAbbreviationFirst_ThenAO3sMatchesRanked()
+    {
+        string[] ao3 = ["Harry Potter - Fandom", "Harry Potter - J. K. Rowling", "Harry Potter and the Cursed Child - Thorne & Rowling"];
+        var picks = SearchSuggestions.FandomPicks("hp", ao3);
+        Assert.Equal("Harry Potter - J. K. Rowling", picks[0]);
+        Assert.Single(picks, p => p == "Harry Potter - J. K. Rowling");
+
+        var typed = SearchSuggestions.FandomPicks("teen wolf", ["Teen Wolf - Episode: Lunatic", "Teen Wolf (TV)"]);
+        Assert.Equal("Teen Wolf (TV)", typed[0]);
+    }
+
+    [Fact]
+    public void FandomPicks_LeaveOutPickedFandoms_AndNeverPickForAnEmptyTerm()
+    {
+        Assert.Equal(["Teen Titans (Cartoon)"],
+            SearchSuggestions.FandomPicks("teen", ["Teen Wolf (TV)", "Teen Titans (Cartoon)"], ["teen wolf (tv)"]));
+        Assert.Empty(SearchSuggestions.FandomPicks("  ", ["Teen Wolf (TV)"]));
+    }
+
+    [Fact]
+    public void PopularFandomPicks_SkipPicked_AndCap()
+    {
+        string[] popular = ["A (TV)", "B (Movie)", "C (Anime)"];
+        Assert.Equal(["A (TV)", "C (Anime)"], SearchSuggestions.PopularFandomPicks(popular, ["b (movie)"], 2));
+        Assert.Empty(SearchSuggestions.PopularFandomPicks(popular, limit: 0));
+    }
+
+    [Fact]
+    public void AddingFandom_Trims_AndIgnoresDuplicates()
+    {
+        Assert.Equal(["Naruto"], SearchSuggestions.AddingFandom("  Naruto ", []));
+        Assert.Equal(["Naruto"], SearchSuggestions.AddingFandom("naruto", ["Naruto"]));
+        Assert.Equal(["Naruto"], SearchSuggestions.AddingFandom("", ["Naruto"]));
+    }
+
     // MARK: - Results count
     // test_searchPage_totalFound lives in CrossAreaTests (it exercises SearchResultsParser).
 }

@@ -209,6 +209,43 @@ public static class SearchSuggestions
             .ToList();
     }
 
+    /// <summary>The Filters sheet's fandom picker (Swift's
+    /// <c>SearchSuggestions.fandomPicks</c>): what to offer for <paramref name="term"/>.
+    /// A known abbreviation's fandom ("hp", "mcu") comes first, then AO3's fandom
+    /// autocomplete (<paramref name="names"/>) re-ranked like the typeahead's;
+    /// fandoms already picked are left out. Nothing is ever picked for the user.</summary>
+    public static IReadOnlyList<string> FandomPicks(string term, IEnumerable<string> names, IEnumerable<string>? picked = null, int limit = 8)
+    {
+        var phrase = term.Trim();
+        if (phrase.Length == 0) return [];
+        var seen = new HashSet<string>((picked ?? []).Select(p => p.ToLowerInvariant()), StringComparer.Ordinal);
+        var takenCount = seen.Count;
+        var output = new List<string>();
+        if (KnownTags.FandomAliases.TryGetValue(phrase.ToLowerInvariant(), out var alias) && seen.Add(alias.ToLowerInvariant()))
+            output.Add(alias);
+        foreach (var name in RankTags(names, phrase, limit + takenCount + 1))
+            if (seen.Add(name.ToLowerInvariant())) output.Add(name);
+        return output.Take(limit).ToList();
+    }
+
+    /// <summary>Quick picks for an empty fandom field (Swift's
+    /// <c>popularFandomPicks</c>): the popular fandoms, minus the ones already picked.</summary>
+    public static IReadOnlyList<string> PopularFandomPicks(IEnumerable<string> popular, IEnumerable<string>? picked = null, int limit = 6)
+    {
+        var seen = new HashSet<string>((picked ?? []).Select(p => p.ToLowerInvariant()), StringComparer.Ordinal);
+        return popular.Where(p => seen.Add(p.ToLowerInvariant())).Take(limit).ToList();
+    }
+
+    /// <summary>Adds a fandom to the picked list unless it's already there (any
+    /// case); Swift's <c>addingFandom</c>.</summary>
+    public static List<string> AddingFandom(string name, IReadOnlyList<string> picked)
+    {
+        var trimmed = name.Trim();
+        if (trimmed.Length == 0 || picked.Any(p => string.Equals(p, trimmed, StringComparison.OrdinalIgnoreCase)))
+            return [.. picked];
+        return [.. picked, trimmed];
+    }
+
     /// <summary>Applies a tapped suggestion: the filter goes into
     /// <paramref name="filters"/>, and the words it came from leave the search text.</summary>
     public static void Apply(SuggestionCandidate candidate, ref string text, AO3SearchFilters filters)
