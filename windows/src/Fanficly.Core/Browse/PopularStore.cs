@@ -77,6 +77,11 @@ public static class PopularStore
 {
     public const string Key = "popular.snapshot.v1";
     public static readonly TimeSpan MaxAge = TimeSpan.FromHours(24);
+    /// <summary>When the last refresh started (round-trip "o" format), so a failed
+    /// one isn't retried on every visit (#196).</summary>
+    public const string AttemptKey = "popular.lastAttemptAt";
+    /// <summary>How long after a failed refresh the next one waits.</summary>
+    public static readonly TimeSpan RetryAfterFailure = TimeSpan.FromHours(1);
 
     /// <summary>Top N per segment.</summary>
     public const int ListLimit = 30;
@@ -96,13 +101,19 @@ public static class PopularStore
     /// <summary>Returns a fresh snapshot, fetching + caching only when the cache is
     /// missing or older than a day. Never throws (except on cancellation) — keeps
     /// the existing cache on failure so the UI just keeps showing what it had (or
-    /// the curated seed).</summary>
+    /// the curated seed), and waits <see cref="RetryAfterFailure"/> before the next
+    /// try, so an AO3 outage doesn't re-crawl it on every visit (#196).</summary>
     public static async Task<PopularSnapshot?> RefreshIfStaleAsync(IAO3Client client, IKeyValueStore? store = null,
                                                                   DateTimeOffset? now = null, CancellationToken ct = default)
     {
         store ??= KeyValueStores.Default;
         var current = Cached(store);
         if (!IsStale(current, now)) return current;
+        var at = now ?? DateTimeOffset.Now;
+        if (DateTimeOffset.TryParse(store.GetString(AttemptKey), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var attempted)
+            && at - attempted < RetryAfterFailure && attempted <= at)
+            return current;
+        store.SetString(AttemptKey, at.ToString("o", CultureInfo.InvariantCulture));
         PopularSnapshot fresh;
         try
         {
@@ -110,6 +121,8 @@ public static class PopularStore
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            // Leaving the screen mid-crawl isn't a failure: try again next visit.
+            store.Remove(AttemptKey);
             throw;
         }
         catch

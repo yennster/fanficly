@@ -31,6 +31,12 @@ public static partial class AppHost
 
     private static readonly object LogLock = new();
 
+    private static string LogFile => Path.Combine(AppPaths.Logs, "fanficly.log");
+
+    /// <summary>Appends a line to the local diagnostic log (<c>Logs\fanficly.log</c>),
+    /// which never leaves the PC. Errors, plus one line per AO3 request naming only
+    /// the route's shape (<c>/works/{id}</c>, <see cref="AO3Endpoints.RouteShape"/>),
+    /// never which work, author, tag or search (#208). Never log secrets.</summary>
     public static void Log(string message)
     {
         if (IsDemoMode) { System.Diagnostics.Debug.WriteLine(message); return; }
@@ -38,12 +44,38 @@ public static partial class AppHost
         {
             lock (LogLock)
             {
-                var file = Path.Combine(AppPaths.Logs, "fanficly.log");
+                var file = LogFile;
                 if (File.Exists(file) && new FileInfo(file).Length > 512 * 1024) File.Delete(file);
                 File.AppendAllText(file, $"{DateTimeOffset.Now:O} {message}{Environment.NewLine}");
             }
         }
         catch { }
+    }
+
+    /// <summary>Deletes the diagnostic log; Recently Viewed's Clear runs it, since
+    /// an error line can name a work or a tag (#208).</summary>
+    public static void ClearLog()
+    {
+        if (IsDemoMode) return;
+        try
+        {
+            lock (LogLock)
+            {
+                if (File.Exists(LogFile)) File.Delete(LogFile);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+    }
+
+    /// <summary>Logs from before #208 name every work, author and tag a request
+    /// loaded, and clearing an already empty Recently Viewed can't reach them, so
+    /// the first launch of this version deletes the log once.</summary>
+    private static void DropLogWithRequestPathsOnce(IKeyValueStore settings)
+    {
+        const string key = "app.logRouteShapes";
+        if (settings.GetBool(key)) return;
+        ClearLog();
+        settings.SetBool(key, true);
     }
 
     public static void Initialize()
@@ -68,7 +100,10 @@ public static partial class AppHost
             var settings = new JsonFileKeyValueStore(AppPaths.Settings);
             LogSettingsProblem(settings, AppPaths.Settings);
             KeyValueStores.Default = settings;
-            KeyValueStores.Synced = new SyncFolderKeyValueStore(Path.Combine(AppPaths.Shared, "synced.json"));
+            var synced = new SyncFolderKeyValueStore(Path.Combine(AppPaths.Shared, "synced.json")) { Log = Log };
+            LogSettingsProblem(synced.LocalStore, Path.Combine(AppPaths.Shared, "synced.json"));
+            KeyValueStores.Synced = synced;
+            DropLogWithRequestPathsOnce(settings);
         }
         InitializeServices();
     }
@@ -102,6 +137,17 @@ public static partial class AppHost
 
     public static void HandleActivation(AppActivationArguments args, bool isLaunch)
     {
+        // A share is read now, while Windows waits on it; the import it starts
+        // waits for the 17+ gate through OpenUri. Everything else (links, files,
+        // jump lists, notification taps) waits for the gate here (#203).
+        if (args.Kind == ExtendedActivationKind.ShareTarget || !Views.Account.ContentSafetyViews.AgeGateRequired)
+            HandleActivationNow(args, isLaunch);
+        else
+            Views.Account.ContentSafetyViews.RunAfterAgeGate(() => HandleActivationNow(args, isLaunch));
+    }
+
+    private static void HandleActivationNow(AppActivationArguments args, bool isLaunch)
+    {
         try
         {
             switch (args.Kind)
@@ -133,7 +179,9 @@ public static partial class AppHost
 
     /// <summary>fanficly://resume/…, fanficly://import?url=…, fanficly://search?query=…,
     /// and plain AO3 work links.</summary>
-    public static void OpenUri(Uri uri) => OpenUriCore(uri);
+    /// <remarks>Waits for the 17+ gate: a pasted, dropped or shared link opens
+    /// nothing before it's confirmed (#203).</remarks>
+    public static void OpenUri(Uri uri) => Views.Account.ContentSafetyViews.RunAfterAgeGate(() => OpenUriCore(uri));
 
     static partial void OpenUriCore(Uri uri);
     static partial void HandleShare(Windows.ApplicationModel.DataTransfer.ShareTarget.ShareOperation operation);

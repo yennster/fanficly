@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The App Clip (#292). fanficly.app's apple-app-site-association lists
+	     this clip under appclips (bin/app-clip.py aasa); the app group is the
+	     app's own, which the installed app inherits (ClipHandoff). -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>appclips:fanficly.app</string>
+	</array>
+	<key>com.apple.developer.parent-application-identifiers</key>
+	<array>
+		<string>$(AppIdentifierPrefix)io.github.yennster.fanficly</string>
+	</array>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.io.github.yennster.fanficly</string>
+	</array>
+</dict>
+</plist>
