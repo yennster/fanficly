@@ -550,10 +550,10 @@ public sealed class LibraryStoreTests : IDisposable
         }
     }
 
-    /// <summary>A version 5 library gains the subscription's Updated date
+    /// <summary>A version 6 library gains the subscription's Updated date
     /// (#197), empty until the next check.</summary>
     [Fact]
-    public void VersionFiveLibraryMigratesToSubscriptionUpdatedDate()
+    public void VersionSixLibraryMigratesToSubscriptionUpdatedDate()
     {
         using (var store = LibraryStore.Open(DbPath))
         {
@@ -563,7 +563,7 @@ public sealed class LibraryStoreTests : IDisposable
         using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={DbPath};Pooling=False"))
         {
             conn.Open();
-            foreach (var sql in new[] { "ALTER TABLE subscriptions DROP COLUMN updated_at", "PRAGMA user_version = 5" })
+            foreach (var sql in new[] { "ALTER TABLE subscriptions DROP COLUMN updated_at", "PRAGMA user_version = 6" })
             {
                 using var cmd = conn.CreateCommand();
                 cmd.CommandText = sql;
