@@ -34,6 +34,12 @@ enum TagResolver {
         return resolved
     }
 
+    /// Records a name picked from AO3's own list (the Filters sheet's fandom
+    /// picker) as already canonical, so searching with it costs no lookup.
+    static func noteCanonical(_ name: String, field: AO3AutocompleteField) async {
+        await ResolutionCache.shared.set(name, for: "\(field.rawValue)|\(name.lowercased())")
+    }
+
     /// Clears the process-lifetime resolution cache. For tests, so a memoized
     /// result from one case can't bleed into another.
     static func clearCacheForTesting() async {

@@ -235,7 +235,7 @@ internal sealed partial class ReaderView
     private async Task RestorePaginatedParagraphAsync(ChapterPageView view)
     {
         if (view.Chapter != _selectedChapter || _pendingParagraphRestore is not { } pending
-            || pending.Chapter != view.Chapter || pending.Paragraph <= 0) return;
+            || pending.Chapter != view.Chapter) return;
         _pendingParagraphRestore = null; // consume: one shot
         _isRestoring = true;
         var generation = _chapGeneration;

@@ -18,10 +18,10 @@ name: CI
 on:
   push:
     branches: [main]
-    paths: ['apple/**', '.github/workflows/ci.yml']
+    paths: ['apple/**', '.github/workflows/ci.yml', 'website/vercel.json', 'website/.well-known/**']
   pull_request:
     branches: [main]
-    paths: ['apple/**', '.github/workflows/ci.yml']
+    paths: ['apple/**', '.github/workflows/ci.yml', 'website/vercel.json', 'website/.well-known/**']
   workflow_dispatch:
 
 permissions:
@@ -50,10 +50,15 @@ jobs:
         run: |
           python3 -m py_compile bin/xcode_cloud.py bin/xcode-cloud-ci.py bin/xcode-cloud-release.py \
             bin/xcode-cloud-store-art.py bin/xcode-cloud-duo.py bin/asc_assets.py bin/release-notes.py \
-            bin/ci-simulator.py
+            bin/ci-simulator.py bin/app-clip.py
           ruby -c fastlane/Fastfile
           sh -n ci_scripts/ci_post_clone.sh
           sh -n ci_scripts/ci_pre_xcodebuild.sh
+
+      # The App Clip's link host, bundle IDs and team agree across project.yml,
+      # the entitlements, WorkLink.swift and the website (#292).
+      - name: App Clip association
+        run: python3 bin/app-clip.py aasa --check
 
   changes:
     # What the PR touches. Docs, screenshots, store text, fastlane/ and bin/
@@ -88,7 +93,7 @@ jobs:
           files=$(git diff --name-only "$(git merge-base "$BASE" "$HEAD")" "$HEAD")
           echo "$files"
           # The app's code, tests, project and the CI that tests them.
-          app='^(apple/(Fanficly|FanficlyShare|FanficlyWidget|FanficlyTests|FanficlyUITests|Fanficly\.xcodeproj|ci_scripts)/|apple/(project\.yml|Signing\.xcconfig|bin/ci-simulator\.py)$|\.github/workflows/ci\.yml$)'
+          app='^(apple/(Fanficly|FanficlyClip|FanficlyShare|FanficlyWidget|FanficlyTests|FanficlyUITests|Fanficly\.xcodeproj|ci_scripts)/|apple/(project\.yml|Signing\.xcconfig|bin/ci-simulator\.py)$|\.github/workflows/ci\.yml$)'
           # What ReaderLayoutTests exercise: the reader and the views that
           # host it, the window and layout, the reader's settings, the demo
           # chapters they paginate, the strings they match, the project and
@@ -131,6 +136,39 @@ jobs:
           name: xcresult-unit-iphone
           path: apple/build/*.xcresult
           if-no-files-found: ignore
+
+  app-clip:
+    # The App Clip (#292) for a device, in Release, as the store gets it, and
+    # its size against Apple's 100 MB limit for an iOS 17+ clip opened from
+    # links (15 MB with App Clip Codes or NFC, which it doesn't use).
+    name: App Clip (build and size)
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: xcode-27
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Xcode 27 or later
+        run: *xcode
+
+      - name: Generate the project
+        run: *xcodegen
+
+      - name: Build
+        run: |
+          xcodebuild build -project Fanficly.xcodeproj -scheme FanficlyClip -configuration Release \
+            -destination "generic/platform=iOS" CODE_SIGNING_ALLOWED=NO -derivedDataPath build/clip
+
+      - name: Size
+        run: |
+          app=build/clip/Build/Products/Release-iphoneos/FanficlyClip.app
+          kb=$(du -sk "$app" | cut -f1)
+          echo "App Clip: $(( (kb + 512) / 1024 )) MB uncompressed ($kb KB)" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$kb" -gt $((100 * 1024)) ]; then
+            echo "::error::The App Clip is over Apple's 100 MB limit"
+            exit 1
+          fi
 
   unit-mac:
     # The unit tests again under Mac Catalyst: the Mac measures text with its

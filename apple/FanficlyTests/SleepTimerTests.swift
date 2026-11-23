@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 @testable import Fanficly
 
@@ -38,5 +39,22 @@ final class SleepTimerTests: XCTestCase {
         // A pending pause then holds the next chapter at its start (play()).
         XCTAssertEqual(SpeechController.paragraphEnd(isLast: true, sleepPausePending: true), .finishChapter)
         XCTAssertEqual(SpeechController.paragraphEnd(isLast: true, sleepPausePending: false), .finishChapter)
+    }
+}
+
+/// Settings' Play Sample (#193) speaks at the stored Listen rate, kept to
+/// what AVSpeech takes.
+final class SpeechSampleTests: XCTestCase {
+    func test_rateIsTheStoredRateWithinAVSpeechsRange() {
+        XCTAssertEqual(SpeechSample.utteranceRate(Double(AVSpeechUtteranceDefaultSpeechRate)),
+                       AVSpeechUtteranceDefaultSpeechRate)
+        XCTAssertEqual(SpeechSample.utteranceRate(0.6), 0.6)
+        XCTAssertEqual(SpeechSample.utteranceRate(5), AVSpeechUtteranceMaximumSpeechRate)
+        XCTAssertEqual(SpeechSample.utteranceRate(-1), AVSpeechUtteranceMinimumSpeechRate)
+    }
+
+    func test_sampleIsTheWindowsAppsPassage() {
+        XCTAssertEqual(SpeechSample.text,
+                       "Bella poured the latte. It was hot. Edward looked up from the corner table and met her eyes.")
     }
 }
