@@ -8,7 +8,7 @@ import SwiftUI
 /// A mouse-mode remote's wheel scrolls the scrolling modes, but page-by-page
 /// doesn't turn on the wheel yet (RM-025).
 enum ReaderKey: Equatable {
-    case left, right, up, down, pageUp, pageDown, space
+    case left, right, up, down, pageUp, pageDown, space, home, end
 
     init?(_ key: KeyEquivalent) {
         switch key {
@@ -19,11 +19,15 @@ enum ReaderKey: Equatable {
         case .pageUp: self = .pageUp
         case .pageDown: self = .pageDown
         case .space: self = .space
+        case .home: self = .home
+        case .end: self = .end
         default: return nil
         }
     }
 
-    static var all: Set<KeyEquivalent> { [.leftArrow, .rightArrow, .upArrow, .downArrow, .pageUp, .pageDown, .space] }
+    static var all: Set<KeyEquivalent> {
+        [.leftArrow, .rightArrow, .upArrow, .downArrow, .pageUp, .pageDown, .space, .home, .end]
+    }
 }
 
 /// What a reader key does, by reading mode. Mirrors the Windows reader's
@@ -38,6 +42,8 @@ enum ReaderKeyAction: Equatable {
     case scrollScreen(forward: Bool)
     /// A line's worth (48pt), never turning the chapter.
     case scrollLine(forward: Bool)
+    /// Home / End: the start or end of the chapter on screen, in every mode.
+    case chapterEdge(end: Bool)
 
     /// Nil for a key the reader doesn't use, or any modifier but Shift+Space
     /// (back a screen), so ⌘ shortcuts pass through.
@@ -48,6 +54,8 @@ enum ReaderKeyAction: Equatable {
         case .right, .down, .pageDown: forward = true
         case .left, .up, .pageUp: forward = false
         case .space: forward = !shift
+        case .home: return .chapterEdge(end: false)
+        case .end: return .chapterEdge(end: true)
         }
         switch mode {
         case .pageByPage:
@@ -56,7 +64,7 @@ enum ReaderKeyAction: Equatable {
             switch key {
             case .left, .right: return .turnChapter(forward: forward)
             case .up, .down: return .scrollLine(forward: forward)
-            case .pageUp, .pageDown, .space: return .scrollScreen(forward: forward)
+            case .pageUp, .pageDown, .space, .home, .end: return .scrollScreen(forward: forward)
             }
         case .continuous:
             switch key {
@@ -139,6 +147,91 @@ struct ReaderScrollViewFinder: UIViewRepresentable {
     }
 }
 
+/// The reader's ⌘ keys, as the Reader menu shows them on iPad and the Mac
+/// (`ReaderMenuCommands`). iPhone has no menu bar, so there the reader
+/// handles them itself (`ReaderKeyPressModifier`); everywhere else the menu
+/// does, so a key never acts twice.
+enum ReaderCommandKey: Equatable {
+    /// ⌘← / ⌘→, as Ctrl+← / Ctrl+→ on Windows.
+    case chapter(forward: Bool)
+    /// ⌘L: Listen to the chapter, or stop (Ctrl+L on Windows).
+    case listen
+
+    /// Nil unless ⌘ (and nothing but ⌘) is held with ←, → or L.
+    init?(key: KeyEquivalent, modifiers: EventModifiers) {
+        guard modifiers.subtracting([.capsLock, .numericPad, .function]) == .command else { return nil }
+        switch key {
+        case .leftArrow: self = .chapter(forward: false)
+        case .rightArrow: self = .chapter(forward: true)
+        case "l", "L": self = .listen
+        default: return nil
+        }
+    }
+}
+
+/// Home and End: where the chapter on screen starts or ends.
+enum ReaderChapterEdge {
+    /// Page-by-page: the first or last page of the current page's chapter,
+    /// or, in a two-page spread, the spread holding it (a spread's id is its
+    /// left page's). Nil when that's already the page on screen.
+    static func pageId(in pages: [ChapterPage], selected: String, end: Bool, spreads: Bool) -> String? {
+        guard let current = pages.first(where: { $0.id == selected }) else { return nil }
+        let inChapter = pages.filter { $0.chapterIndex == current.chapterIndex }
+        guard let edge = end ? inChapter.last : inChapter.first else { return nil }
+        if spreads, let spread = ReaderSpread.spreads(from: pages).first(where: { $0.contains(edge.id) }) {
+            return spread.contains(selected) ? nil : spread.id
+        }
+        return edge.id == selected ? nil : edge.id
+    }
+}
+
+/// The id of a marker at the bottom of each chapter in continuous scroll,
+/// which End scrolls to the bottom of the screen.
+struct ChapterEndID: Hashable {
+    let chapter: Int
+}
+
+/// What the Reader menu's chapter and Listen items act on: the reader in
+/// front, through a focused scene value (`ReaderView` publishes it).
+struct ReaderMenuActions {
+    let hasPreviousChapter: Bool
+    let hasNextChapter: Bool
+    let isListening: Bool
+    let turnChapter: @MainActor (Bool) -> Void
+    let toggleListening: @MainActor () -> Void
+}
+
+private struct ReaderMenuActionsKey: FocusedValueKey {
+    typealias Value = ReaderMenuActions
+}
+
+extension FocusedValues {
+    var readerMenu: ReaderMenuActions? {
+        get { self[ReaderMenuActionsKey.self] }
+        set { self[ReaderMenuActionsKey.self] = newValue }
+    }
+}
+
+/// The Reader menu's Previous / Next Chapter (⌘← / ⌘→) and Listen (⌘L),
+/// enabled only while a reader is in front.
+struct ReaderMenuCommands: View {
+    @FocusedValue(\.readerMenu) private var reader
+
+    var body: some View {
+        Button("Previous Chapter") { reader?.turnChapter(false) }
+            .keyboardShortcut(.leftArrow, modifiers: [.command])
+            .disabled(reader?.hasPreviousChapter != true)
+        Button("Next Chapter") { reader?.turnChapter(true) }
+            .keyboardShortcut(.rightArrow, modifiers: [.command])
+            .disabled(reader?.hasNextChapter != true)
+        Button(reader?.isListening == true ? "Stop Listening" : "Listen to Chapter") {
+            reader?.toggleListening()
+        }
+        .keyboardShortcut("l", modifiers: [.command])
+        .disabled(reader == nil)
+    }
+}
+
 struct ReaderKeyPressModifier: ViewModifier {
     let mode: ReadingMode
     @FocusState.Binding var isReaderFocused: Bool
@@ -149,6 +242,11 @@ struct ReaderKeyPressModifier: ViewModifier {
     /// ⌘F: Find in this work (#183). The Reader menu has it too (Mac, iPad);
     /// this covers a keyboard on iPhone, which has no menu bar.
     let find: () -> Void
+    /// ⌘← / ⌘→ and ⌘L. Only on iPhone, which has no menu bar: on iPad and
+    /// the Mac the Reader menu's items take these keys (`ReaderMenuCommands`).
+    let command: (ReaderCommandKey) -> Void
+
+    @MainActor private static let handlesCommandKeys = UIDevice.current.userInterfaceIdiom == .phone
 
     func body(content: Content) -> some View {
         content
@@ -166,6 +264,13 @@ struct ReaderKeyPressModifier: ViewModifier {
                         mode: mode)
                 else { return .ignored }
                 perform(action)
+                return .handled
+            }
+            .onKeyPress(keys: [.leftArrow, .rightArrow, "l", "L"], phases: .down) { press in
+                guard Self.handlesCommandKeys, isReaderFocused,
+                      let key = ReaderCommandKey(key: press.key, modifiers: press.modifiers)
+                else { return .ignored }
+                command(key)
                 return .handled
             }
             .onKeyPress("f", phases: .down) { press in
