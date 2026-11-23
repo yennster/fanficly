@@ -71,7 +71,15 @@ struct HoldStillWhileHidden: ViewModifier {
                 .onChange(of: live, initial: true) { _, frame in
                     if releasing, let shown, !Self.same(frame, shown.frame) { return }
                     releasing = false
-                    if !hidden { record(frame) }
+                    if !hidden {
+                        record(frame)
+                    } else if let shown, abs(shown.window.width - window.size.width) >= 1
+                                || abs(shown.window.height - window.size.height) >= 1 {
+                        // The window changed size with the controls hidden (a
+                        // rotation, a fold): hold the new area, so the top
+                        // still fills (fillsTop) rather than leaving the band.
+                        record(frame)
+                    }
                 }
                 .onChange(of: hidden) { _, isHidden in
                     guard !isHidden else {

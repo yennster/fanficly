@@ -170,9 +170,6 @@ final class ReaderSideColumnTests: XCTestCase {
     }
 }
 
-/// Page-by-page's page height: pages fill the page area on screen, shrink at
-/// once and grow only once the area settles. The heights are an iPhone's page
-/// area: 700 with the controls up, 784 with them hidden.
 /// Page-by-page's frame with the controls hidden:
 /// the page takes the empty bar's room at the top instead of a blank margin.
 @MainActor
@@ -201,6 +198,9 @@ final class HiddenControlsFrameTests: XCTestCase {
     }
 }
 
+/// Page-by-page's page height: pages fill the page area on screen, shrink at
+/// once and grow only once the area settles. The heights are an iPhone's page
+/// area: 700 with the controls up, 784 with them hidden.
 final class PageAreaTrackerTests: XCTestCase {
     func test_shrinksAtOnce() {
         var tracker = PageAreaTracker()

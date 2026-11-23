@@ -2429,10 +2429,14 @@ struct ReaderView: View {
     /// so pinning pagination to it keeps the page count stable as the user
     /// shows/hides the chrome. Falls back to the supplied live height when no
     /// window is reachable (SwiftUI previews / unit tests).
+    /// The window's own height, to tell a genuine window resize from the page
+    /// area changing inside it. Not less its safe area: an iPad's status bar
+    /// hides with the controls, and full screen would read as a new window
+    /// (clearing `PageAreaTracker.controlsUpHeight`, so two pages could turn
+    /// into one).
     private func immersiveReadingHeight(fallback: CGFloat) -> CGFloat {
         guard let window = ReaderView.activeKeyWindow() else { return fallback }
-        let insets = window.safeAreaInsets
-        let height = window.bounds.height - insets.top - insets.bottom
+        let height = window.bounds.height
         return height > 100 ? height : fallback
     }
 

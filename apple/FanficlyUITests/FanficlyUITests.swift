@@ -447,6 +447,8 @@ final class ReaderLayoutTests: XCTestCase {
         // (not iPhone Duo's strip at the side, or its open book, pinned under it).
         let window = app.windows.firstMatch.frame
         let barOnTop = !isDuoUnfolded && readerTopEdge(above: bar) > window.minY + 30
+        // Read while the footer is there: full screen takes it out of the tree.
+        let spread = page(footer)?.isSpread == true
         let pageNumber = app.descendants(matching: .any).matching(identifier: "reader.pageNumber").firstMatch
         // The middle third of the page shows or hides the controls.
         let middle = CGPoint(x: bar.midX, y: bar.minY - 200)
@@ -470,7 +472,7 @@ final class ReaderLayoutTests: XCTestCase {
                                         "\(context): the page didn't take the bar's room (text top \(topBefore) → \(topHidden))",
                                         file: file, line: line)
         }
-        assertPagesFull(hidden, endingAt: bar.minY, spread: page(footer)?.isSpread == true,
+        assertPagesFull(hidden, endingAt: bar.minY, spread: spread,
                         across: bar, "\(context), full screen", file: file, line: line)
         try assertTextStaysOnItsPage("\(context), full screen", file: file, line: line)
         tap(middle)
