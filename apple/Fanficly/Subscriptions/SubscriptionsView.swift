@@ -420,10 +420,15 @@ struct SubscriptionsView: View {
         // The per-work and per-author checks are throttled (1 req/sec) and
         // only feed notifications, so run them after the list is showing.
         // Followed works and authors need no login (#186).
+        // Skipped while a full check runs: it covers these works too, and
+        // two at once could alert twice for the same chapter.
         isChecking = true
-        let chapters = await poller.checkWorksForNewChapters()
-        let newWorks = await poller.checkFollowedAuthors()
+        let counts = await BackgroundRefresh.exclusive {
+            (await poller.checkWorksForNewChapters(), await poller.checkFollowedAuthors())
+        }
         isChecking = false
+        guard let counts else { return }
+        let (chapters, newWorks) = counts
         // Cancelled, or another account's: the results aren't this one's to show.
         guard !Task.isCancelled, auth.username == username, !poller.accountChanged else {
             syncIfNew()
