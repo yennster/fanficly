@@ -50,6 +50,11 @@ def setup(platforms: list[str]) -> dict[str, tuple[dict, dict]]:
             "description": f"The {cfg['label']} App Store build, archived with the newest Xcode 27+. "
                            "Started only by release.yml in GitHub, which keeps this workflow up to date.",
             "clean": True,
+            # Never on its own, even if a start condition was added in App Store Connect.
+            "pullRequestStartCondition": None,
+            "branchStartCondition": None,
+            "tagStartCondition": None,
+            "scheduledStartCondition": None,
             # Started by release.yml only, and only on main.
             "manualBranchStartCondition": {
                 "source": {"isAllMatch": False, "patterns": [{"pattern": "main", "isPrefix": False}]},

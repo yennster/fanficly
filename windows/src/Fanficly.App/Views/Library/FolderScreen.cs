@@ -37,6 +37,7 @@ public sealed class FolderScreen : Screen
     private bool _subscribed;
     private int _pendingFocusIndex = -1;
     private int _lastFocusedIndex = -1;
+    private Work? _returnFocusItem;
 
     public FolderScreen(string folderName, string initialSearchText = "")
     {
@@ -54,7 +55,6 @@ public sealed class FolderScreen : Screen
     protected override FrameworkElement Build()
     {
         _root = UI.UI.Grid("*", "Auto,Auto,*,Auto");
-        RestoreBanner.Attach(_root).Row(0);
 
         _search = new AutoSuggestBox
         {
@@ -215,7 +215,26 @@ public sealed class FolderScreen : Screen
         if (IsBuilt) Rebuild(resetScroll: false);
     }
 
-    public override void OnDisappearing() => Unsubscribe();
+    public override void OnDisappearing()
+    {
+        // Back puts focus on the row the user opened (#178). The rows are rebuilt,
+        // and maybe re-sorted (Last Read), when the screen reappears, so remember
+        // the item itself and find its new row.
+        _returnFocusItem = IsBuilt && LibraryActions.IsFocusWithin(_list.Element)
+            && _lastFocusedIndex >= 0 && _lastFocusedIndex < _list.Items.Count
+            ? _list.Items[_lastFocusedIndex] : null;
+        Unsubscribe();
+    }
+
+    protected override bool RestoreFocus()
+    {
+        var item = _returnFocusItem;
+        _returnFocusItem = null;
+        if (item is null) return false;
+        var index = _list.Items.IndexOf(item);
+        return index >= 0 && _list.ElementAt(index) is { } row
+               && FirstFocusable(row)?.Focus(FocusState.Programmatic) == true;
+    }
 
     public override void OnRemoved() => Unsubscribe();
 
@@ -435,7 +454,7 @@ public sealed class FolderScreen : Screen
         foreach (var w in _list.Items) _selected.Add(w.Ao3Id);
         _list.Refresh();
         UpdateRemoveButton();
-        MainWindow.Current?.Announce($"Selected {_selected.Count} stories");
+        MainWindow.Current?.Announce($"Selected {Plural.Stories(_selected.Count)}");
     }
 
     private void RemoveSelected()

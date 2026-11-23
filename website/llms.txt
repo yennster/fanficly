@@ -1,6 +1,6 @@
 # Fanficly
 
-> Fanficly is a free, ad-free app for reading fanfiction from Archive of Our Own (AO3) on iPhone, iPad, Mac and Windows. It has no Fanficly account or server, no analytics and no ads. It is an independent app, not affiliated with AO3 or the Organization for Transformative Works.
+> Fanficly is a free, ad-free app for reading fanfiction from Archive of Our Own (AO3) on iPhone, iPhone Duo, iPad, Mac and Windows. It has no Fanficly account or server, no analytics and no ads. It is an independent app, not affiliated with AO3 or the Organization for Transformative Works.
 
 ## Download
 
@@ -18,14 +18,15 @@
 - Library with folders, stars, pins, sorting and search; download works for offline reading; import EPUB files (AO3 downloads or any e-book); export as EPUB, MOBI, AZW3, PDF or HTML.
 - Follow works and authors without an account and get notifications for new chapters and new works; turn on alerts for a saved search to hear about new fics that match it.
 - Reading stats (stories finished, time and words read, streak, top fandoms, ships and authors) with a yearly wrap-up card.
-- Optional AO3 sign-in for bookmarks, subscriptions, comments and kudos. The password goes only to AO3; only AO3's session cookie is kept, in the device's secure keychain.
+- Optional AO3 sign-in for bookmarks, subscriptions, comments and kudos. The password goes only to AO3; only AO3's session cookie and the AO3 username are kept, encrypted on the device (in the Keychain on Apple devices, with Windows Data Protection on PCs).
 - Widgets for the story you're reading on the iPhone and iPad home and lock screens and on Windows.
 
 ## Links
 
 - [Website](https://fanficly.app/)
 - [Source code](https://github.com/yennster/fanficly)
-- [Privacy policy for iPhone, iPad and Mac](https://github.com/yennster/fanficly/blob/main/PRIVACY.md)
+- [Privacy policy for iPhone, iPhone Duo, iPad and Mac](https://github.com/yennster/fanficly/blob/main/PRIVACY.md)
 - [Privacy policy for Windows](https://github.com/yennster/fanficly/blob/main/windows/PRIVACY.md)
 - [Release notes](https://github.com/yennster/fanficly/releases)
+- [Sponsor the developer on GitHub Sponsors](https://github.com/sponsors/yennster)
 - [Support](https://github.com/yennster/fanficly/issues)
