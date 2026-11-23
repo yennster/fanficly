@@ -231,7 +231,8 @@ internal sealed partial class ReaderView
             ReaderPrefs.KerningPt / zoom,
             ReaderPrefs.BoldText,
             ShowImages,
-            new ReaderSize(spread?.PageWidth ?? width, area));
+            new ReaderSize(spread?.PageWidth ?? width, area),
+            PageMargin);
         // Already paginating for exactly this: let that run finish.
         if (_paginationRun is not null && trigger == _runningTrigger && Equals(spread, _runningSpread)) return;
         _paginationRun?.Cancel();
@@ -652,7 +653,7 @@ internal sealed partial class ReaderView
         cell.Children.Add(new ScrollViewer
         {
             Content = panel,
-            Margin = new Thickness(0, ReaderPaginator.PageVerticalMargin, 0, ReaderPaginator.PageVerticalMargin),
+            Margin = new Thickness(0, PageMargin, 0, PageMargin),
             HorizontalScrollMode = ScrollMode.Disabled,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Hidden,

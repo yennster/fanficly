@@ -178,6 +178,17 @@ public static class ReaderMetrics
         ("Tight", -0.2), ("Standard", 0.0), ("Medium", 0.5), ("Wide", 1.2), ("Extra Wide", 2.2),
     ];
 
+    /// <summary>Page-by-page's margin at the top and the bottom of every page, inside
+    /// the page area (<c>reader.pageMarginPt</c>, per device; Swift's
+    /// <c>ReaderMetrics.defaultPageMargin</c>). 12 was the fixed margin before it
+    /// became a setting.</summary>
+    public const double DefaultPageMargin = 12;
+    public static readonly (double Min, double Max) PageMarginRange = (0, 60);
+    public static readonly IReadOnlyList<(string Name, double Value)> PageMarginPresets =
+    [
+        ("Small (6 pt)", 6), ("Standard (12 pt)", 12), ("Medium (24 pt)", 24), ("Large (40 pt)", 40),
+    ];
+
     /// <summary>One-page margin presets (the Aa menu's "Margins").</summary>
     public static readonly IReadOnlyList<(string Name, double Value)> WidthPresets =
     [

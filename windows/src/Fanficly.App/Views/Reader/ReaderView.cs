@@ -195,6 +195,9 @@ internal sealed partial class ReaderView
     private ReadingMode Mode => ReaderPrefs.Mode;
     private static double Zoom => ReaderPrefs.ZoomScale;
     private double FontSize => ReaderPrefs.FontSizePt / Zoom;
+    /// <summary>Page-by-page's top and bottom margin (Top &amp; bottom margins), as drawn
+    /// under the app's zoom like the type (Swift: <c>ReaderView.pageMargin</c>).</summary>
+    private static double PageMargin => ReaderPrefs.PageMarginPt / Zoom;
 
     /// <summary>The reader's text settings, divided by the UI zoom (so the app's
     /// zoom doesn't change the story's text size, as on the Mac).</summary>
@@ -403,7 +406,8 @@ internal sealed partial class ReaderView
             || ReaderPrefs.Is(k, ReaderPrefs.LineSpacingBase) || ReaderPrefs.Is(k, ReaderPrefs.ParagraphSpacingBase)
             || ReaderPrefs.Is(k, ReaderPrefs.KerningBase) || ReaderPrefs.Is(k, ReaderPrefs.BoldTextBase)
             || ReaderPrefs.Is(k, ReaderPrefs.WidthPercentBase) || k == ReaderPrefs.ShowImagesKey || k == ReaderPrefs.ZoomKey);
-        var spreadChanged = keys.Any(k => ReaderPrefs.Is(k, ReaderPrefs.TwoPageSpreadBase) || ReaderPrefs.Is(k, ReaderPrefs.SpreadWidthBase));
+        var spreadChanged = keys.Any(k => ReaderPrefs.Is(k, ReaderPrefs.TwoPageSpreadBase) || ReaderPrefs.Is(k, ReaderPrefs.SpreadWidthBase)
+            || ReaderPrefs.Is(k, ReaderPrefs.PageMarginBase));
 
         if (themeChanged) ApplyTheme();
         if (!_bodyBuilt) return;

@@ -41,6 +41,7 @@ public sealed class ReaderSettingsScreen : Screen
     private static readonly string AnimationsKey = K("reader.pageTurnAnimations");
     private static readonly string TwoPageKey = K("reader.twoPageSpread");
     private static readonly string SpreadWidthKey = K("reader.spreadWidthPercent");
+    private static readonly string PageMarginKey = K("reader.pageMarginPt");
     private static readonly string KerningKey = K("reader.kerningPt");
     private static readonly string BoldKey = K("reader.boldText");
     private const string KeepAwakeKey = "reader.keepScreenAwake";
@@ -62,6 +63,7 @@ public sealed class ReaderSettingsScreen : Screen
     private static bool PageTurnAnimations { get => Store.GetBool(AnimationsKey, true); set => Store.SetBool(AnimationsKey, value); }
     private static bool TwoPageSpread { get => Store.GetBool(TwoPageKey, true); set => Store.SetBool(TwoPageKey, value); }
     private static double SpreadWidthPercent { get => Store.GetDouble(SpreadWidthKey, ReaderSpread.DefaultWidthPercent); set => Store.SetDouble(SpreadWidthKey, value); }
+    private static double PageMarginPt { get => Store.GetDouble(PageMarginKey, ReaderMetrics.DefaultPageMargin); set => Store.SetDouble(PageMarginKey, value); }
     private static double KerningPt { get => Store.GetDouble(KerningKey, ReaderMetrics.DefaultKerning); set => Store.SetDouble(KerningKey, value); }
     private static bool BoldText { get => Store.GetBool(BoldKey, false); set => Store.SetBool(BoldKey, value); }
     private static string ActiveProfileName { get => Store.GetString(ReaderProfile.DeviceActiveProfileKey) ?? DefaultProfileName; set => Store.SetString(ReaderProfile.DeviceActiveProfileKey, value); }
@@ -84,6 +86,7 @@ public sealed class ReaderSettingsScreen : Screen
     // Reading mode extras that show only for page-by-page / two pages.
     private FrameworkElement? _pagesOnScreenRow;
     private FrameworkElement? _spreadMarginsRow;
+    private FrameworkElement? _pageMarginsRow;
 
     private Button? _sampleButton;
 
@@ -427,12 +430,15 @@ public sealed class ReaderSettingsScreen : Screen
             .Also(r => ToolTipService.SetToolTip(r, "On wide windows, show two pages side by side like an open book."));
         _spreadMarginsRow = SettingsKit.MetricSlider("Two-page margins", "arrow.left.and.right.square", SpreadWidthPercent,
             ReaderSpread.WidthPercentRange, 2.0, "%", v => SpreadWidthPercent = v, "settings.reader.spreadMargins");
+        _pageMarginsRow = SettingsKit.MetricSlider("Top & bottom margins", "arrow.up.and.down.square", PageMarginPt,
+            ReaderMetrics.PageMarginRange, 2.0, "pt", v => PageMarginPt = v, "settings.reader.pageMargins");
 
         return UI.UI.Section("Reading mode",
         [
             modes,
             _pagesOnScreenRow,
             _spreadMarginsRow,
+            _pageMarginsRow,
             SettingsKit.ToggleRow("Page-turn animation", PageTurnAnimations, on => { PageTurnAnimations = on; QueueBackup(); },
                 "square.2.layers.3d", tooltip: "Slide pages across as they turn.", automationId: "settings.reader.animations"),
             SettingsKit.ToggleRow("Keep screen awake while reading", Store.GetBool(KeepAwakeKey, true), on => Store.SetBool(KeepAwakeKey, on),
@@ -449,8 +455,10 @@ public sealed class ReaderSettingsScreen : Screen
         var pageByPage = ModeRaw == ReadingMode.PageByPage.RawValue();
         _pagesOnScreenRow?.Visible(pageByPage);
         _spreadMarginsRow?.Visible(pageByPage && TwoPageSpread);
+        _pageMarginsRow?.Visible(pageByPage);
         HideDividerBefore(_pagesOnScreenRow);
         HideDividerBefore(_spreadMarginsRow);
+        HideDividerBefore(_pageMarginsRow);
     }
 
     /// <summary>Hides the section divider above a hidden row so no double line shows.</summary>

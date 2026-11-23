@@ -829,6 +829,9 @@ public class ReaderPaginationTests(ITestOutputHelper output)
         var trigger = new PaginationTrigger(2, 18, "newYork", 70, 6, 16, 0, false, false, new ReaderSize(402, 694));
         Assert.True(trigger.DiffersOnlyInPageArea(trigger with { Size = new ReaderSize(402, 610) }));
         Assert.True(trigger.DiffersOnlyInPageArea(trigger with { Size = new ReaderSize(900, 600), WidthPercent = 88 }));
+        // The Top & bottom margins setting re-paginates, as a page-area change.
+        Assert.NotEqual(trigger, trigger with { VerticalMargin = 40 });
+        Assert.True(trigger.DiffersOnlyInPageArea(trigger with { VerticalMargin = 40 }));
         Assert.False(trigger.DiffersOnlyInPageArea(trigger with { FontSize = 20 }));
         Assert.False(trigger.DiffersOnlyInPageArea(trigger with { ShowImages = true }));
         Assert.False(trigger.DiffersOnlyInPageArea(trigger with { Chapter = 3 }));
