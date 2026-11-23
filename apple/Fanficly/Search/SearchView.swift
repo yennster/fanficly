@@ -89,7 +89,7 @@ struct SearchView: View {
             _ = await poller.checkStaleSavedSearches()
         }
         .sheet(isPresented: $showingFilters) {
-            WorkFilterSheet(filters: $active) {
+            WorkFilterSheet(filters: $active, editsFandom: true) {
                 if active.sortColumn != sortWhenFiltersOpened { userPickedSort = true }
                 if hasSearched || !currentFilters.isEmpty { submit() }
             }

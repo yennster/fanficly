@@ -82,6 +82,13 @@ public sealed class SubscriptionsScreen : Screen
         });
     }
 
+    public override void OnRemoved()
+    {
+        AppHost.Library.Changed -= OnLibraryChanged;
+        AppHost.Auth.PropertyChanged -= OnAuthChanged;
+        _cts?.Cancel();
+    }
+
     private static string? Username => AppHost.Auth.Username;
 
     private static bool HasLocalFollows =>
