@@ -173,6 +173,38 @@ public sealed class ScreenshotTests(ITestOutputHelper output)
         Assert.True(missing.Count == 0, $"Couldn't reach: {string.Join(", ", missing)}");
     }
 
+    /// <summary>What's New (#422) for review, into <c>whats-new/&lt;size&gt;</c> (not a
+    /// folder the docs or Store art read): the dialog an update shows
+    /// (<c>-demoWhatsNew</c> puts it up with the changelog's newest entry), the
+    /// history its See All Updates opens, and the Settings row.</summary>
+    [Theory]
+    [InlineData("desktop")]
+    [InlineData("tablet")]
+    [InlineData("compact")]
+    public void CaptureWhatsNew(string size)
+    {
+        var folder = Path.Combine(OutputRoot, "whats-new", size);
+        using (var s = AppSession.Launch(FormFactor.Named(size), "-demoWhatsNew"))
+        {
+            Assert.True(s.Find(15, "whatsNew.dialog", "See All Updates") is not null, "The What's New dialog didn't show.");
+            s.Settle(1200);
+            s.Snap(folder, "whats-new-1-dialog");
+            Assert.True(s.Tap(4, "See All Updates"), "No See All Updates button.");
+            Assert.True(s.WaitForHeader("What's New"), $"See All Updates opened \"{s.HeaderTitle}\".");
+            s.Settle(1000);
+            s.Snap(folder, "whats-new-2-history");
+        }
+        using (var s = AppSession.Launch(FormFactor.Named(size)))
+        {
+            Assert.True(s.OpenTab("settings"));
+            var row = s.ById("settings.whatsNew");
+            Assert.NotNull(row);
+            row!.Patterns.ScrollItem.PatternOrDefault?.ScrollIntoView();
+            s.Settle(800);
+            s.Snap(folder, "whats-new-3-settings-row");
+        }
+    }
+
     /// <summary>The reader page by page, a page into the chapter: a two-page
     /// spread on a wide window, one page on an upright one. "store" and
     /// "store-tablet" feed the Store art (windows/scripts/make_store_art.py).</summary>

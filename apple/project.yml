@@ -325,7 +325,7 @@ schemes:
     test:
       targets:
         - name: FanficlyUITests
-          selectedTests: [ReaderLayoutTests, NonReaderAccessibilityTests]
+          selectedTests: [ReaderLayoutTests, NonReaderAccessibilityTests, WhatsNewScreenshotTests]
   # ScreenshotTests alone: the store art, in Xcode Cloud
   # (bin/xcode-cloud-store-art.py).
   FanficlyScreenshots:

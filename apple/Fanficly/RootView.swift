@@ -282,6 +282,13 @@ struct RootView: View {
             // only once the sheet is on screen, so one that couldn't present
             // (another alert was up) shows next time.
             .task {
+                // -demoWhatsNew (UI tests' screenshots only): the newest entry,
+                // drafted or not, with nothing recorded as seen.
+                if FanficlyApp.isDemoMode, ProcessInfo.processInfo.arguments.contains("-demoWhatsNew") {
+                    try? await Task.sleep(for: .seconds(1))
+                    whatsNewRelease = WhatsNew.allReleases.first
+                    return
+                }
                 guard !FanficlyApp.isDemoMode, !FanficlyApp.isTestMode, !WhatsNewLaunch.checked else { return }
                 WhatsNewLaunch.checked = true
                 let defaults = UserDefaults.standard
@@ -306,7 +313,10 @@ struct RootView: View {
             }
             .sheet(item: $whatsNewRelease) { release in
                 WhatsNewSheet(release: release)
-                    .onAppear { UserDefaults.standard.set(release.version, forKey: WhatsNew.lastSeenKey) }
+                    .onAppear {
+                        guard !FanficlyApp.isDemoMode else { return }
+                        UserDefaults.standard.set(release.version, forKey: WhatsNew.lastSeenKey)
+                    }
             }
             // The "Continue Reading" App Shortcut. `initial: true` catches a run
             // that launched the app before this view existed.

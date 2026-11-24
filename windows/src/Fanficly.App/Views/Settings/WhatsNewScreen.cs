@@ -60,6 +60,11 @@ public static class WhatsNewDialog
     /// a story, a file or a share, so the dialog waits for the next plain launch.</summary>
     public static void CheckAtLaunch(bool isExistingUser, bool openedIntoContent)
     {
+        if (AppHost.IsDemoWhatsNew && WhatsNew.AllReleases.FirstOrDefault() is { } preview)
+        {
+            _ = ShowAsync(preview);
+            return;
+        }
         if (AppHost.IsDemoMode || AppHost.IsIconGallery) return;
         var newest = WhatsNew.Releases.FirstOrDefault();
         var store = KeyValueStores.Default;
@@ -90,7 +95,10 @@ public static class WhatsNewDialog
         AutomationProperties.SetAutomationId(dialog, "whatsNew.dialog");
         // Seen once it's on screen: a dialog still queued when the app closes
         // shows next launch.
-        dialog.Opened += (_, _) => KeyValueStores.Default.SetString(WhatsNew.LastSeenKey, release.Version);
+        dialog.Opened += (_, _) =>
+        {
+            if (!AppHost.IsDemoMode) KeyValueStores.Default.SetString(WhatsNew.LastSeenKey, release.Version);
+        };
         if (await Dialogs.ShowAsync(dialog) != ContentDialogResult.Primary) return;
         var window = MainWindow.Current;
         window.Select(SidebarItem.Settings);
