@@ -581,16 +581,6 @@
         }
       }
     },
-    "Saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly for Windows. Importing adds the file's works to your library without moving reading progress backwards." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly for Windows. Importing adds the file's works to your library without moving reading progress backwards."
-          }
-        }
-      }
-    },
     "Send feedback" : {
       "localizations" : {
         "en" : {
@@ -917,6 +907,126 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "• Your AO3 username and AO3's sign-in cookies (in the Keychain), so you stay logged in. Your password is never stored.\n• Works you've saved offline, your notes and tags on them, and your reading position (in app storage).\n• Your preferences (theme, font size).\n• What the widgets show: the story you read last, your reading streak, and short lists of saved searches, folders, subscriptions and recommendations.\n• The title, author, summary and tags of works in your Library, in your device's on-device Spotlight index so system search can find them. Removing a work removes it."
+          }
+        }
+      }
+    },
+    "The library file saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly for Windows. Importing adds the file's works to your library without moving reading progress backwards. The spreadsheet lists every work with its AO3 link and details, for Numbers, Excel, Google Sheets or a reading tracker; it can't be imported back." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The library file saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly for Windows. Importing adds the file's works to your library without moving reading progress backwards. The spreadsheet lists every work with its AO3 link and details, for Numbers, Excel, Google Sheets or a reading tracker; it can't be imported back."
+          }
+        }
+      }
+    },
+    "Export Spreadsheet (CSV)…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Spreadsheet (CSV)…"
+          }
+        }
+      }
+    },
+    "The spreadsheet couldn't be written. Please try again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The spreadsheet couldn't be written. Please try again."
+          }
+        }
+      }
+    },
+    "The spreadsheet is ready to share." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The spreadsheet is ready to share."
+          }
+        }
+      }
+    },
+    "Export All Downloaded EPUBs…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export All Downloaded EPUBs…"
+          }
+        }
+      }
+    },
+    "Cancel Export" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel Export"
+          }
+        }
+      }
+    },
+    "Export" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export"
+          }
+        }
+      }
+    },
+    "Makes one EPUB file per story from what's saved on this device, without going online, then opens the share sheet so you can save them to Files, AirDrop them or open them in Books." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Makes one EPUB file per story from what's saved on this device, without going online, then opens the share sheet so you can save them to Files, AirDrop them or open them in Books."
+          }
+        }
+      }
+    },
+    "There were no downloaded stories to export." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "There were no downloaded stories to export."
+          }
+        }
+      }
+    },
+    "Exporting EPUBs… %lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exporting EPUBs… %lld of %lld"
+          }
+        }
+      }
+    },
+    "Export %lld EPUB %@ (about %@)?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export %lld EPUB %@ (about %@)?"
+          }
+        }
+      }
+    },
+    "Couldn't write the EPUB files. %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't write the EPUB files. %@"
           }
         }
       }

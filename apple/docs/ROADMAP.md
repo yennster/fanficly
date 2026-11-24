@@ -276,6 +276,14 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line the t
 - **Touches:** `Library/LibraryView.swift`.
 - **Windows counterpart:** none needed; Windows has it.
 
+### RM-034 — Export All My Data: library spreadsheet and every downloaded EPUB (iPhone, iPad, Mac)
+- **Status:** done · **Size:** M · **Validation:** unit
+- **Why:** #417. The library file (RM-012) is JSON for importing back; people also want a list of their works with AO3 links they can open in a spreadsheet or a reading tracker, and their downloaded stories as EPUB files in one go.
+- **Scope:** Settings → Library File → *Export Spreadsheet (CSV)…* (`LibraryCSV`): one row per library work, UTF-8 with a BOM, a header row, RFC 4180 quoting, `; ` between several values, ISO 8601 UTC dates, the column list shared with Windows (RM-128). Text cells that start like a formula get a leading apostrophe. Settings → Storage → *Export All Downloaded EPUBs…* (`BulkEPUBExporter`): shows the count and an estimated size, then writes one EPUB per downloaded story with #173's offline path (the saved AO3 file, or `EPUBBuilder` from the saved text), with progress and Cancel, and hands them to the share sheet as separate files. Same names as a single export; a shared name gets ` (<work id>)`. No AO3 requests.
+- **Done when:** `LibraryExportTests`: escaping, the column list, a CSV round trip, a work's row, and one valid EPUB per downloaded work with no client at all.
+- **Touches:** `Library/LibraryExport.swift`, `Settings/SettingsView.swift`, `Localizable.xcstrings`.
+- **Windows counterpart:** RM-128 in `windows/ROADMAP.md`, built in the same PR.
+
 ## Engineering health (any release)
 
 Not features, but worth doing; add as items when started.
