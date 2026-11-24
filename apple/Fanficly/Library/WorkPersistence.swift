@@ -35,7 +35,19 @@ enum WorkPersistence {
     static func saveImported(payload: AO3WorkPayload, into context: ModelContext) -> Work {
         // Importing a work deleted a moment ago keeps it (#169).
         UndoCenter.shared.cancel(UndoCenter.Key.work(payload.summary.id))
-        let work = upsert(payload: payload, into: context, save: false)
+        let work: Work
+        let saved = savedWork(ao3Id: payload.summary.id, in: context)
+        if let saved, saved.chapters.count > payload.chapters.count {
+            // AO3 now has fewer chapters than the saved copy (the author
+            // deleted some): an import never throws away offline text, as
+            // `DownloadUpdate.apply` and an EPUB import don't.
+            work = upsertMetadata(summary: payload.summary, into: context, save: false)
+        } else {
+            work = upsert(payload: payload, into: context, save: false)
+            // The chapters just saved aren't news: move the follow's and the
+            // AO3 subscription's baselines with them, as an update does.
+            advanceBaselines(workId: work.ao3Id, to: payload.summary.chapterCount, work: work, in: context)
+        }
         if !work.isFollowed {
             work.isFollowed = true
             work.followedAt = .now
@@ -47,6 +59,19 @@ enum WorkPersistence {
         work.noteCheckSucceeded()
         try? context.save()
         return work
+    }
+
+    /// Moves a work's new-chapter baselines (its follow and its AO3
+    /// subscription record) up to `count`, never down.
+    @MainActor
+    private static func advanceBaselines(workId: Int, to count: Int, work: Work, in context: ModelContext) {
+        if let seen = work.lastSeenChapterCount, seen < count { work.lastSeenChapterCount = count }
+        let key = "work:\(workId)"
+        let descriptor = FetchDescriptor<SubscriptionRecord>(predicate: #Predicate { $0.key == key })
+        if let record = (try? context.fetch(descriptor))?.first,
+           let seen = record.lastSeenChapterCount, seen < count {
+            record.lastSeenChapterCount = count
+        }
     }
 
     /// Upsert just the metadata (no chapter bodies). Used by the local

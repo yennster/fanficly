@@ -101,6 +101,30 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(try ctx.fetch(FetchDescriptor<Work>()).count, 1)
     }
 
+    // An author deleting chapters doesn't cost the saved copy its text.
+    func test_saveImported_keepsALongerSavedCopy() throws {
+        let ctx = try makeContext()
+        _ = WorkPersistence.saveImported(payload: payload(id: 32, chapters: 5), into: ctx)
+        let again = WorkPersistence.saveImported(payload: payload(id: 32, chapters: 3), into: ctx)
+        XCTAssertEqual(again.chapters.count, 5)
+        XCTAssertTrue(again.isFollowed)
+    }
+
+    // Chapters the import just saved don't alert again on the next poll.
+    func test_saveImported_movesTheBaselinesWithTheSavedText() throws {
+        let ctx = try makeContext()
+        let first = WorkPersistence.saveImported(payload: payload(id: 33, chapters: 2), into: ctx)
+        XCTAssertEqual(first.lastSeenChapterCount, 2)
+        let sub = SubscriptionRecord(key: "work:33", kind: "work", displayName: "Fic")
+        sub.lastSeenChapterCount = 2
+        ctx.insert(sub)
+        try ctx.save()
+
+        let again = WorkPersistence.saveImported(payload: payload(id: 33, chapters: 4), into: ctx)
+        XCTAssertEqual(again.lastSeenChapterCount, 4)
+        XCTAssertEqual(sub.lastSeenChapterCount, 4)
+    }
+
     // MARK: - Spotlight
 
     func test_spotlightIdentifier_roundTrips() {

@@ -361,8 +361,10 @@ struct SubscriptionsView: View {
             }
         }
         // ⌘R (F5 on Windows): View → Refresh on iPad and the Mac.
-        .menuAction(\.refreshList, enabled: auth.username != nil && !isRefreshing) {
-            Task { await refresh() }
+        // Same as the toolbar's Refresh: one run at a time, and an account
+        // change cancels it (refreshTask).
+        .menuAction(\.refreshList, enabled: (auth.username != nil || hasLocalFollows) && !isBusy) {
+            startRefresh()
         }
         .task {
             // Not in demo mode, so screenshot and UI-test runs never get the alert.

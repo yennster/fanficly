@@ -42,6 +42,10 @@ struct ClipRootView: View {
             .navigationDestination(for: SeriesWorkRef.self) { _ in
                 ClipFullAppView(message: "Get Fanficly to read the next part of this series.")
             }
+            // The header's tag chips (#380) open a tag's works in the app.
+            .navigationDestination(for: TagRef.self) { tag in
+                ClipFullAppView(message: "Get Fanficly to see more works tagged \(tag.name).")
+            }
         }
         .onPreferenceChange(ReaderFullScreenKey.self) { readerFullScreen = $0 }
         .environment(statusBar)
