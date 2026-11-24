@@ -711,6 +711,23 @@ public class ReaderPaginationTests(ITestOutputHelper output)
         output.WriteLine($"{result.Pages.Count} pages across three chapters");
     }
 
+    [Fact]
+    public void PerformPagination_TakesTheTopAndBottomMarginsFromThePage()
+    {
+        AO3ChapterPayload[] chapters = [new(1, "One", ChapterHtml), new(2, "Two", ChapterHtml), new(3, "Three", ChapterHtml)];
+        var trigger = new PaginationTrigger(2, 18, "newYork", 70, 6, 16, 0, false, false, new ReaderSize(402, 694));
+        IndexRange[] Chapter2(PaginationTrigger t) =>
+            ReaderPaginator.PerformPagination(t, null, chapters, "A Work", "tester", "tester", null, true, Measurer)
+                .Pages.Where(p => p.ChapterIndex == 2).Select(p => p.ParagraphIndices).ToArray();
+
+        var standard = Chapter2(trigger);
+        var wide = Chapter2(trigger with { VerticalMargin = 40 });
+        // 28 more at the top and the bottom leave the text 56 less height: the same
+        // pages as a page 56 shorter with the standard margins.
+        Assert.Equal(Chapter2(trigger with { Size = new ReaderSize(402, 694 - 56) }), wide);
+        Assert.True(wide.Length > standard.Length, $"{wide.Length} pages at 40, {standard.Length} at 12");
+    }
+
     // MARK: - Paginating in slices (#164)
 
     [Fact]
@@ -829,6 +846,9 @@ public class ReaderPaginationTests(ITestOutputHelper output)
         var trigger = new PaginationTrigger(2, 18, "newYork", 70, 6, 16, 0, false, false, new ReaderSize(402, 694));
         Assert.True(trigger.DiffersOnlyInPageArea(trigger with { Size = new ReaderSize(402, 610) }));
         Assert.True(trigger.DiffersOnlyInPageArea(trigger with { Size = new ReaderSize(900, 600), WidthPercent = 88 }));
+        // The Top & bottom margins setting re-paginates, as a page-area change.
+        Assert.NotEqual(trigger, trigger with { VerticalMargin = 40 });
+        Assert.True(trigger.DiffersOnlyInPageArea(trigger with { VerticalMargin = 40 }));
         Assert.False(trigger.DiffersOnlyInPageArea(trigger with { FontSize = 20 }));
         Assert.False(trigger.DiffersOnlyInPageArea(trigger with { ShowImages = true }));
         Assert.False(trigger.DiffersOnlyInPageArea(trigger with { Chapter = 3 }));

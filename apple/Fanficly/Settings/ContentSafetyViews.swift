@@ -62,7 +62,7 @@ struct HiddenWorksView: View {
                 ContentUnavailableView(
                     "Nothing hidden",
                     systemImage: "eye",
-                    description: Text("Use the … menu on a work and choose “Hide this work” to keep it out of your search and browse results.")
+                    description: Text("Use the Work options menu on a work and choose “Hide this work” to keep it out of your search and browse results.")
                 )
             } else {
                 List {
@@ -122,7 +122,7 @@ struct ContentPolicyView: View {
                 )
                 section(
                     "Reporting",
-                    "Every work has a “Report this work” action (in the … menu) that opens AO3's official abuse-report form — AO3 is the host and can remove content. You can also email us, and we review reports about the app within 24 hours."
+                    "Every work has a “Report this work” action (in its Work options menu) that opens AO3's official abuse-report form — AO3 is the host and can remove content. You can also email us, and we review reports about the app within 24 hours."
                 )
                 section(
                     "Your controls",

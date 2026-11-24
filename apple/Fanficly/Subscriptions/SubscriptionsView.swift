@@ -124,7 +124,7 @@ struct SubscriptionsView: View {
         // Opens the saved copy, as the Library does (offline too).
         NavigationLink(value: work) {
             LibraryRow(work: work, downloaded: WorkPersistence.isDownloaded(work),
-                       checkedAt: work.lastCheckedAt)
+                       checkStatus: work.checkStatus)
         }
         .swipeActions(edge: .trailing) {
             Button {
@@ -237,7 +237,7 @@ struct SubscriptionsView: View {
             NavigationLink {
                 LoginView()
             } label: {
-                Text("Open Settings → AO3 Login").font(.callout)
+                Text("Log In to AO3").font(.callout)
             }
         }
     }
@@ -465,6 +465,22 @@ struct SubscriptionsView: View {
     }
 }
 
+/// A row's "checked … ago", or why checks keep failing (#195).
+struct CheckStatusText: View {
+    let status: CheckStatus
+
+    var body: some View {
+        switch status {
+        case .checked(let date):
+            Text("checked \(date, style: .relative) ago")
+                .font(.caption).foregroundStyle(.secondary)
+        case .failing(let failure):
+            Label(CheckStatus.message(for: failure), systemImage: "exclamationmark.triangle")
+                .font(.caption).foregroundStyle(.orange)
+        }
+    }
+}
+
 /// Visually mirrors `LibraryRow` so subscriptions and the library feel like
 /// the same list. We don't have full work metadata for uncached subs (no
 /// fandom/rating/wordcount), so those rows show kind + chapter/checked stats
@@ -490,9 +506,8 @@ struct SubscriptionRow: View {
                     Text("\(count) chapter\(count == 1 ? "" : "s")")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                if let checked = sub.lastCheckedAt {
-                    Text("checked \(checked, style: .relative) ago")
-                        .font(.caption).foregroundStyle(.secondary)
+                if let status = sub.checkStatus {
+                    CheckStatusText(status: status)
                 }
             }
         }
@@ -556,7 +571,7 @@ struct BookmarksView: View {
                     Text("Your AO3 bookmarks show here once you log in, including private ones.")
                 } actions: {
                     NavigationLink { LoginView() } label: {
-                        Text("Open Settings → AO3 Login").font(.callout)
+                        Text("Log In to AO3").font(.callout)
                     }
                 }
             } else if isLoading && works.isEmpty {
@@ -822,7 +837,7 @@ struct ReadingListView: View {
                     Text(list.loginPrompt)
                 } actions: {
                     NavigationLink { LoginView() } label: {
-                        Text("Open Settings → AO3 Login").font(.callout)
+                        Text("Log In to AO3").font(.callout)
                     }
                 }
             } else if isLoading && works.isEmpty {

@@ -32,7 +32,7 @@ Everything below lives in Fanficly's own app storage: the package's local data f
 - **The taskbar jump list.** Right-clicking Fanficly on the taskbar shows "Continue “title”" for the story you read last. Windows keeps that list on your PC.
 - **A cached Popular list.** This is the daily snapshot of popular fandoms, ships and characters.
 
-None of this is sent to us. There is no Fanficly server. On its own, the only way any of it leaves your PC is the optional sync described next. You can also choose to export your library as a file (Settings → Sync → Export Library File); that file goes only where you save it, and importing one only reads the file you pick.
+None of this is sent to us. There is no Fanficly server. On its own, the only way any of it leaves your PC is the optional sync described next. You can also choose to export your library as a file (Settings → Sync → Export Library File), as a spreadsheet of your works (Settings → Sync → Export Spreadsheet), or as EPUB files of your downloaded stories (Settings → Storage → Export All Downloaded EPUBs); those files are made on your PC and go only where you save them, and importing a library file only reads the file you pick.
 
 ## Sync (your folder, not ours)
 

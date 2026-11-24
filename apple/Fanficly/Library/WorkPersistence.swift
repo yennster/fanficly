@@ -42,6 +42,9 @@ enum WorkPersistence {
             // Following now isn't news: alert only for chapters after this.
             work.lastSeenChapterCount = payload.summary.chapterCount
         }
+        // AO3 just answered for it, so an earlier follow's failed checks
+        // are over (#195).
+        work.noteCheckSucceeded()
         try? context.save()
         return work
     }
@@ -399,6 +402,12 @@ enum WorkPersistence {
             work.isFollowed = true
             work.followedAt = .now
             work.lastSeenChapterCount = summary.chapterCount
+            // A follow starts unchecked: an earlier follow's failed checks
+            // (or one that worked months ago) say nothing about this one (#195).
+            work.lastCheckedAt = nil
+            work.lastSucceededAt = nil
+            work.checkFailures = 0
+            work.lastCheckFailure = nil
             // Following opts into the poller's new-chapter alerts — the one
             // notification source that works fully logged out — so this is
             // the moment to ask for permission, not the login-gated

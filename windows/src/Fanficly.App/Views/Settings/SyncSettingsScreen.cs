@@ -162,9 +162,41 @@ public sealed class SyncSettingsScreen : Screen
                 automationId: "settings.sync.exportFile").Also(b => b.IsEnabled = !Busy),
             SettingsKit.ActionRow("Import Library File…", () => _ = ImportFileAsync(), "arrow.down.doc",
                 automationId: "settings.sync.importFile").Also(b => b.IsEnabled = !Busy),
+            SettingsKit.ActionRow("Export Spreadsheet (CSV)…", () => _ = ExportSpreadsheetAsync(), "doc.text",
+                automationId: "settings.sync.exportSpreadsheet"),
         };
         return UI.UI.Section("Library file", rows,
-            footer: "Saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly on an iPhone, iPad or Mac. Importing adds the file's works to your library without moving reading progress backwards, and keeps the settings you've chosen on this PC.");
+            footer: "The library file saves your library, reading progress, stats and settings as a file you can keep anywhere, or opens one from another device, including Fanficly on an iPhone, iPad or Mac. Importing adds the file's works to your library without moving reading progress backwards, and keeps the settings you've chosen on this PC. The spreadsheet lists every work with its AO3 link and details, for Excel, Google Sheets or a reading tracker; it can't be imported back.");
+    }
+
+    /// <summary>Saves the library as a CSV spreadsheet where the user picks
+    /// (#417; Swift: <c>LibraryCSV</c> through the share sheet).</summary>
+    private static async Task ExportSpreadsheetAsync()
+    {
+        try
+        {
+            var name = LibraryCsv.FileName(DateTimeOffset.Now);
+            var picker = new FileSavePicker
+            {
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+                SuggestedFileName = Path.GetFileNameWithoutExtension(name),
+                DefaultFileExtension = ".csv",
+            };
+            picker.FileTypeChoices.Add("CSV spreadsheet", new List<string> { ".csv" });
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(MainWindow.Current));
+            var file = await picker.PickSaveFileAsync();
+            if (file is null) return;
+            // Records are read on the UI thread; only the encoding moves off it.
+            var rows = LibraryCsv.Rows(AppHost.Library, id => UndoQueue.Shared.IsPending(UndoQueue.Keys.Work(id)));
+            var data = await Task.Run(() => LibraryCsv.Data(rows));
+            await FileIO.WriteBytesAsync(file, data);
+            MainWindow.Current.ShowMessage("Spreadsheet Exported", file.Name);
+        }
+        catch (Exception e)
+        {
+            AppHost.Log($"Spreadsheet export failed: {e.Message}");
+            await Dialogs.AlertAsync("Export Failed", "The spreadsheet couldn't be written. Please try again.");
+        }
     }
 
     /// <summary>The cloud services this PC syncs (<see cref="SyncFolderSuggestions"/>).</summary>

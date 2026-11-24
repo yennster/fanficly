@@ -6,7 +6,8 @@ struct LibraryRow: View {
     let work: Work
     let downloaded: Bool
     /// The poller's last check of a followed work, shown in Subscriptions (#186).
-    var checkedAt: Date? = nil
+    /// A followed work's last check, on the Subscriptions tab (#195).
+    var checkStatus: CheckStatus? = nil
     @AppStorage("library.showReadingProgress") private var showReadingProgress = true
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -82,10 +83,8 @@ struct LibraryRow: View {
                 }
             }
 
-            if let checkedAt {
-                Text("checked \(checkedAt, style: .relative) ago")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            if let checkStatus {
+                CheckStatusText(status: checkStatus)
             }
 
             if let note = work.note, !note.isEmpty {
