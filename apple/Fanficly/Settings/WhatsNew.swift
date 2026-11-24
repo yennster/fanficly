@@ -113,14 +113,13 @@ enum WhatsNewLaunch {
 /// One theme: its icon, title and line.
 private struct WhatsNewThemeRow: View {
     let theme: WhatsNewRelease.Theme
-    var large = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: large ? 16 : 12) {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: theme.icon)
-                .font(large ? .title2 : .body)
+                .font(.body)
                 .foregroundStyle(.tint)
-                .frame(width: large ? 36 : 28)
+                .frame(width: 28)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(theme.title)
@@ -136,56 +135,80 @@ private struct WhatsNewThemeRow: View {
     }
 }
 
-/// The sheet the first launch after an update shows.
-struct WhatsNewSheet: View {
+/// The small box the first launch after an update shows, centered over a
+/// dimmed app: the release's headlines (one line each), Continue, and See All
+/// Updates, which opens the history with every detail.
+struct WhatsNewCard: View {
     let release: WhatsNewRelease
+    let onContinue: () -> Void
+    let onSeeAll: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.3)
+                .ignoresSafeArea()
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 14) {
+                Text("What's New in Fanficly \(release.displayVersion)")
+                    .font(.title3.bold())
+                    .accessibilityAddTraits(.isHeader)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(release.themes, id: \.self) { theme in
+                        Label {
+                            Text(theme.title)
+                                .font(.subheadline)
+                        } icon: {
+                            Image(systemName: theme.icon)
+                                .foregroundStyle(.tint)
+                                .frame(width: 22)
+                        }
+                    }
+                }
+                VStack(spacing: 6) {
+                    Button(action: onContinue) {
+                        Text("Continue")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .accessibilityIdentifier("whatsNew.continue")
+                    Button(action: onSeeAll) {
+                        Text("See All Updates")
+                            .font(.subheadline)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("whatsNew.history")
+                }
+                .padding(.top, 4)
+            }
+            .padding(20)
+            .frame(maxWidth: 320)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .shadow(color: .black.opacity(0.15), radius: 20, y: 6)
+            .padding(24)
+            .accessibilityElement(children: .contain)
+            .accessibilityAddTraits(.isModal)
+        }
+        .transition(.opacity)
+    }
+}
+
+/// See All Updates from the box: the history in a sheet of its own.
+struct WhatsNewHistorySheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    Text("What's New in Fanficly \(release.displayVersion)")
-                        .font(.largeTitle.bold())
-                        .accessibilityAddTraits(.isHeader)
-                        .padding(.top, 24)
-                    ForEach(release.themes, id: \.self) { theme in
-                        WhatsNewThemeRow(theme: theme, large: true)
+            WhatsNewHistoryView()
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
                     }
-                    NavigationLink {
-                        WhatsNewHistoryView()
-                    } label: {
-                        Text("See All Updates")
-                    }
-                    .accessibilityIdentifier("whatsNew.history")
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 16)
-                .frame(maxWidth: 560)
-                .frame(maxWidth: .infinity)
-            }
-            .safeAreaInset(edge: .bottom) {
-                Button {
-                    dismiss()
-                } label: {
-                    Text("Continue")
-                        .font(.headline)
-                        .frame(maxWidth: 520)
-                        .padding(.vertical, 6)
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .accessibilityIdentifier("whatsNew.continue")
-                .padding(.horizontal, 24)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity)
-                .background(.bar)
-            }
-            .toolbar(.hidden, for: .navigationBar)
         }
-        // A Mac sheet sizes to its content; give it room for the themes.
-        .frame(minWidth: UIDevice.current.userInterfaceIdiom == .mac ? 460 : nil,
-               minHeight: UIDevice.current.userInterfaceIdiom == .mac ? 560 : nil)
     }
 }
 

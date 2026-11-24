@@ -4,8 +4,8 @@
 (#422). Both apps bundle it, so nothing is fetched:
 
 - **The pop-up.** The first time someone opens the app after an update, it shows the
-  newest release's themes once (a sheet on iPhone, iPhone Duo, iPad and Mac, a dialog
-  on Windows), with Continue and See All Updates. A fresh install shows nothing, and a
+  newest release's theme titles once, in a small box (each theme's line is in See All
+  Updates), with Continue and See All Updates. Keep titles short: they're one line there. A fresh install shows nothing, and a
   launch that opened a story or a link waits for the next ordinary launch. Each device
   remembers the newest release it has shown under `whatsNew.lastSeenVersion`.
 - **Settings → About → What's New** lists every release, newest first.

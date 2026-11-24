@@ -331,7 +331,7 @@ Fanficly/
                                #   Settings → About "Rate Fanficly" link);
                                #   ContentFilter + ContentSafetyViews (age/hide);
                                #   WhatsNew (#422): the bundled ../changelog/
-                               #   whats-new.json, the sheet RootView shows once
+                               #   whats-new.json, the small box (WhatsNewCard) RootView shows once
                                #   after an update (not on a fresh install: the
                                #   17+ answer predates the launch; not over a
                                #   launch that opened a story or link) and

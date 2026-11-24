@@ -27,7 +27,7 @@ public sealed class WhatsNewScreen : Screen
             // app's own version numbers (Settings → About) differ.
             var header = release.Date is { } date ? LongDate(date) : "Coming soon";
             page.Children.Add(UI.UI.Section(header,
-                release.Themes.Select(t => (UIElement)ThemeRow(t, large: false).Margin(14, 10, 14, 10))));
+                release.Themes.Select(t => (UIElement)ThemeRow(t).Margin(14, 10, 14, 10))));
         }
         return SettingsKit.Page(page, "settings.whatsNew.page");
     }
@@ -35,10 +35,10 @@ public sealed class WhatsNewScreen : Screen
     internal static string LongDate(DateOnly date) => date.ToString("D", CultureInfo.CurrentCulture);
 
     /// <summary>One theme: its icon, title and line, read as one item.</summary>
-    internal static FrameworkElement ThemeRow(WhatsNewTheme theme, bool large)
+    internal static FrameworkElement ThemeRow(WhatsNewTheme theme)
     {
-        var row = UI.UI.Grid("Auto,*", columnSpacing: large ? 16 : 12);
-        row.Children.Add(UI.UI.Icon(theme.Icon, large ? 24 : 16, Theme.Accent)
+        var row = UI.UI.Grid("Auto,*", columnSpacing: 12);
+        row.Children.Add(UI.UI.Icon(theme.Icon, 16, Theme.Accent)
             .Also(i => { i.VerticalAlignment = VerticalAlignment.Top; i.Margin = new Thickness(0, 2, 0, 0); })
             .A11yHidden().Col(0));
         row.Children.Add(UI.UI.VStack(2,
@@ -47,11 +47,24 @@ public sealed class WhatsNewScreen : Screen
         AutomationProperties.SetName(row, $"{theme.Title}. {theme.Detail}");
         return row;
     }
+
+    /// <summary>The dialog's line for a theme: its icon and title only; the
+    /// detail is in See All Updates.</summary>
+    internal static FrameworkElement HeadlineRow(WhatsNewTheme theme)
+    {
+        var row = UI.UI.Grid("Auto,*", columnSpacing: 10);
+        row.Children.Add(UI.UI.Icon(theme.Icon, 16, Theme.Accent)
+            .Also(i => i.VerticalAlignment = VerticalAlignment.Center)
+            .A11yHidden().Col(0));
+        row.Children.Add(UI.UI.Text(theme.Title, Theme.Style.Body).Col(1));
+        AutomationProperties.SetName(row, theme.Title);
+        return row;
+    }
 }
 
-/// <summary>The dialog the first launch after an update shows (#422; the Swift
-/// WhatsNewSheet): the newest release's themes, Continue, and See All Updates,
-/// which opens Settings → What's New.</summary>
+/// <summary>The small dialog the first launch after an update shows (#422; the
+/// Swift WhatsNewCard): the newest release's theme titles, Continue, and See
+/// All Updates, which opens Settings → What's New.</summary>
 public static class WhatsNewDialog
 {
     /// <summary>Called once from OnLaunched. <paramref name="isExistingUser"/>: the
@@ -83,11 +96,11 @@ public static class WhatsNewDialog
     {
         // Let the window settle (and a restore prompt ask first) before it shows.
         await Task.Delay(TimeSpan.FromSeconds(1.5));
-        var themes = UI.UI.VStack(18, release.Themes.Select(t => (UIElement)WhatsNewScreen.ThemeRow(t, large: true)).ToArray());
+        var themes = UI.UI.VStack(10, release.Themes.Select(t => (UIElement)WhatsNewScreen.HeadlineRow(t)).ToArray());
         var dialog = new ContentDialog
         {
             Title = "What's New in Fanficly",
-            Content = new ScrollViewer { Content = themes, MaxWidth = 520, Padding = new Thickness(0, 4, 12, 4) },
+            Content = new ScrollViewer { Content = themes, MaxWidth = 320, Padding = new Thickness(0, 4, 12, 4) },
             PrimaryButtonText = "See All Updates",
             CloseButtonText = "Continue",
             DefaultButton = ContentDialogButton.Close,

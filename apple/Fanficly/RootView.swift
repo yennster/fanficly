@@ -63,6 +63,7 @@ struct RootView: View {
     @State private var statusBar = StatusBarVisibility()
     /// What's New after an update (#422).
     @State private var whatsNewRelease: WhatsNewRelease?
+    @State private var showWhatsNewHistory = false
     /// A link, file, Spotlight result, notification or shortcut opened
     /// something this launch, so What's New waits for the next one.
     @State private var openedContentThisLaunch = false
@@ -311,12 +312,22 @@ struct RootView: View {
                     whatsNewRelease = release
                 }
             }
-            .sheet(item: $whatsNewRelease) { release in
-                WhatsNewSheet(release: release)
+            .overlay {
+                if let release = whatsNewRelease {
+                    WhatsNewCard(release: release,
+                                 onContinue: { withAnimation { whatsNewRelease = nil } },
+                                 onSeeAll: {
+                                     withAnimation { whatsNewRelease = nil }
+                                     showWhatsNewHistory = true
+                                 })
                     .onAppear {
                         guard !FanficlyApp.isDemoMode else { return }
                         UserDefaults.standard.set(release.version, forKey: WhatsNew.lastSeenKey)
                     }
+                }
+            }
+            .sheet(isPresented: $showWhatsNewHistory) {
+                WhatsNewHistorySheet()
             }
             // The "Continue Reading" App Shortcut. `initial: true` catches a run
             // that launched the app before this view existed.
