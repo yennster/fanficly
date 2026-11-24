@@ -386,6 +386,7 @@ struct FandomPickerSection: View {
 
     var body: some View {
         Section {
+            anyFandomRow
             ForEach(fandoms, id: \.self) { name in
                 HStack {
                     Label {
@@ -443,6 +444,36 @@ struct FandomPickerSection: View {
         }
     }
 
+    /// No fandom is a choice too: ticked while nothing is picked or typed
+    /// (Apply adds typed words), and a one-tap way back to every fandom
+    /// otherwise.
+    @ViewBuilder private var anyFandomRow: some View {
+        if fandoms.isEmpty && trimmedTerm.isEmpty {
+            Label {
+                Text("Any fandom").foregroundStyle(.primary)
+            } icon: {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Any fandom")
+            .accessibilityAddTraits(.isSelected)
+            .accessibilityIdentifier("filters.fandom.any")
+        } else {
+            Button {
+                fandoms = []
+                term = ""
+                matches = []
+                UIAccessibility.post(notification: .announcement, argument: "Searching any fandom")
+            } label: {
+                Label("Any fandom", systemImage: "circle")
+                    .foregroundStyle(.primary)
+            }
+            .accessibilityLabel("Any fandom")
+            .accessibilityHint("Removes the picked fandoms")
+            .accessibilityIdentifier("filters.fandom.any")
+        }
+    }
+
     /// Matches while typing; popular fandoms when the field is empty.
     private var rows: [String] {
         if trimmedTerm.isEmpty {
@@ -455,7 +486,7 @@ struct FandomPickerSection: View {
 
     private var footer: String {
         if fandoms.isEmpty && trimmedTerm.isEmpty {
-            return "Popular fandoms are shown. Type to search AO3's list of fandoms."
+            return "Searching every fandom. Pick one below or type to search AO3's list of fandoms."
         }
         if !trimmedTerm.isEmpty && rows.isEmpty {
             if lookupFailed { return "Couldn't reach AO3's fandom list. Press Return to use what you typed." }
@@ -464,7 +495,7 @@ struct FandomPickerSection: View {
                 ? "Keep typing to search AO3's list of fandoms."
                 : "No AO3 fandom matches. Press Return to use what you typed."
         }
-        return "Works must be tagged with every fandom you pick."
+        return "Works must be tagged with every fandom you pick. Choose Any fandom to search them all."
     }
 
     /// `fromAO3`: a row from AO3's own autocomplete answer, so
