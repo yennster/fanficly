@@ -49,9 +49,10 @@ internal sealed class SavedWorkReaderScreen : ReaderHostScreen
     }
 
     /// <summary>The saved reader for a Library work, or the live work page when it
-    /// isn't in the Library (any more).</summary>
+    /// isn't in the Library (any more), or its delete waits behind the Undo bar (#169).</summary>
     public static Screen ForWork(int workId) =>
-        AppHost.Library.GetWork(workId) is { } work ? new SavedWorkReaderScreen(work) : new WorkDetailScreen(workId, null);
+        AppHost.Library.GetWork(workId) is { } work && !UndoQueue.Shared.IsPending(UndoQueue.Keys.Work(workId))
+            ? new SavedWorkReaderScreen(work) : new WorkDetailScreen(workId, null);
 
     private IReadOnlyList<Chapter> OfflineChapters => AppHost.Library.ChaptersOf(_work);
 

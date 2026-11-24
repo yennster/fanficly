@@ -179,6 +179,33 @@ public sealed class PersistenceTests : IDisposable
     }
 
     [Fact]
+    public void SaveImported_KeepsALongerSavedCopy()
+    {
+        // An author deleting chapters doesn't cost the saved copy its text.
+        using var ctx = MakeContext();
+        WorkPersistence.SaveImported(Payload(32, 5), ctx);
+        var again = WorkPersistence.SaveImported(Payload(32, 3), ctx);
+        Assert.Equal(5, again.Chapters.Count);
+        Assert.True(again.IsFollowed);
+    }
+
+    [Fact]
+    public void SaveImported_MovesTheBaselinesWithTheSavedText()
+    {
+        // Chapters the import just saved don't alert again on the next poll.
+        using var ctx = MakeContext();
+        var first = WorkPersistence.SaveImported(Payload(33, 2), ctx);
+        Assert.Equal(2, first.LastSeenChapterCount);
+        var sub = new SubscriptionRecord("work:33", "work", "Fic") { LastSeenChapterCount = 2 };
+        ctx.Insert(sub);
+        ctx.TrySave();
+
+        var again = WorkPersistence.SaveImported(Payload(33, 4), ctx);
+        Assert.Equal(4, again.LastSeenChapterCount);
+        Assert.Equal(4, sub.LastSeenChapterCount);
+    }
+
+    [Fact]
     public void ResultBadge_UnknownWorkHasNone()
     {
         Assert.Null(WorkPersistence.ResultBadgeFor(inLibrary: false, started: false, progress: null, isComplete: false));
