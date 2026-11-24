@@ -174,6 +174,22 @@ public class HTMLToAttributedTests
     }
 
     [Fact]
+    public void ImageOnlyChapterHasNothingToSpeak()
+    {
+        // An art-only chapter (#199): with images off it renders nothing, and
+        // with them on only unspoken image slots and scene breaks.
+        const string html = "<p><img src=\"https://example.com/a.png\"></p><hr><p><img src=\"https://example.com/b.png\"></p>";
+        Assert.Empty(HTMLToAttributed.SpokenIndices(HTMLToAttributed.SpeechParagraphs(html)));
+        Assert.Empty(HTMLToAttributed.SpokenIndices(HTMLToAttributed.SpeechParagraphs(html, includeImages: true)));
+    }
+
+    [Fact]
+    public void SpokenIndicesSkipEmptySlots()
+    {
+        Assert.Equal([0, 3], HTMLToAttributed.SpokenIndices(["One.", "", " \n", "Two."]));
+    }
+
+    [Fact]
     public void ImageCacheKeysDoNotCollide()
     {
         // The same HTML converted with and without images must not share a

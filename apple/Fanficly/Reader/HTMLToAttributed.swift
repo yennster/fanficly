@@ -133,6 +133,15 @@ enum HTMLToAttributed {
         }
     }
 
+    /// The indices of `speechParagraphs` that are read aloud: the non-empty
+    /// ones. Empty for a chapter with nothing to speak, such as one with only
+    /// images (#199).
+    static func spokenIndices(_ paragraphs: [String]) -> [Int] {
+        paragraphs.indices.filter {
+            !paragraphs[$0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
     /// Resolves an `<a href>` to an openable URL: protocol-relative hrefs get
     /// https, `http` upgrades to `https`, and root-relative paths resolve
     /// against archiveofourown.org (links to other works/users/tags are common
