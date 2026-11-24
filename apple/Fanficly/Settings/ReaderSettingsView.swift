@@ -1,4 +1,5 @@
 import AVFoundation
+import Combine
 import SwiftUI
 import SwiftData
 
@@ -43,6 +44,8 @@ struct ReaderSettingsView: View {
     @State private var renameText = ""
     /// Made on the first Play Sample, not every time the view is built.
     @State private var sample: SpeechSample?
+    /// Loaded off the main thread (see `VoiceCatalog`), not on every redraw.
+    @State private var voiceGroups: [VoiceGroup] = VoiceCatalog.cached ?? []
 
     init() {
         ReaderProfile.migrateLegacySettingsIfNeeded()
@@ -169,33 +172,14 @@ struct ReaderSettingsView: View {
         Binding(get: { renamingProfile != nil }, set: { if !$0 { renamingProfile = nil } })
     }
 
-    /// Every installed voice, grouped by language (#184): the system voice's
-    /// language first, then the rest by name, each group sorted by voice name.
-    private var voiceGroups: [VoiceGroup] {
-        let system = AVSpeechSynthesisVoice.currentLanguageCode()
-        return Dictionary(grouping: AVSpeechSynthesisVoice.speechVoices(), by: \.language)
-            .map { tag, voices in
-                VoiceGroup(tag: tag,
-                           name: Locale.current.localizedString(forIdentifier: tag) ?? tag,
-                           voices: voices.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending })
-            }
-            .sorted { SpeechLanguage.listsBefore(($0.tag, $0.name), ($1.tag, $1.name), systemLanguage: system) }
-    }
-
     /// A stored voice that isn't installed here (removed, or synced from the
     /// Windows app) shows as Automatic, which is what Listen falls back to.
+    /// So does any voice until the list has loaded.
     private func voiceSelection(_ groups: [VoiceGroup]) -> Binding<String> {
-        let installed = Set(groups.flatMap { $0.voices.map(\.identifier) })
+        let installed = Set(groups.flatMap { $0.voices.map(\.id) })
         return Binding(
             get: { installed.contains(ttsVoiceId) ? ttsVoiceId : "" },
             set: { ttsVoiceId = $0 })
-    }
-
-    private struct VoiceGroup: Identifiable {
-        let tag: String
-        let name: String
-        let voices: [AVSpeechSynthesisVoice]
-        var id: String { tag }
     }
 
     /// Only an iPhone has the Taptic Engine page-turn haptics play on: an
@@ -396,8 +380,8 @@ struct ReaderSettingsView: View {
                     Text("Automatic").tag("")
                     ForEach(voiceGroups) { group in
                         Section(group.name) {
-                            ForEach(group.voices, id: \.identifier) { voice in
-                                Text("\(voice.name) (\(voice.language))").tag(voice.identifier)
+                            ForEach(group.voices) { voice in
+                                Text("\(voice.name) (\(voice.language))").tag(voice.id)
                             }
                         }
                     }
@@ -516,6 +500,14 @@ struct ReaderSettingsView: View {
             Button("OK", role: .cancel) { }
         }
         .onDisappear { sample?.stop() }
+        // The last list shows at once; a fresh read replaces it, so a voice
+        // downloaded in iOS Settings (the footer says how) shows up.
+        .task { voiceGroups = await VoiceCatalog.load() }
+        .onReceive(NotificationCenter.default
+            .publisher(for: AVSpeechSynthesizer.availableVoicesDidChangeNotification)
+            .receive(on: RunLoop.main)) { _ in
+            Task { voiceGroups = await VoiceCatalog.load() }
+        }
     }
 
     private func queueBackup() {
@@ -571,6 +563,61 @@ struct ReaderSettingsView: View {
         }
         .padding(.vertical, 2)
         .help("Adjust the \(title.lowercased())")
+    }
+}
+
+/// One row of the Voice picker: plain values, so the list can be built off
+/// the main thread.
+struct VoiceOption: Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String
+    let language: String
+}
+
+/// The Voice picker's languages, each with its voices.
+struct VoiceGroup: Identifiable, Hashable, Sendable {
+    let tag: String
+    let name: String
+    let voices: [VoiceOption]
+    var id: String { tag }
+}
+
+/// The installed voices, read off the main thread each time Reader settings
+/// opens (and when iOS says the set changed), keeping the last list to show
+/// meanwhile. `speechVoices()` can block for seconds, far longer on a cold
+/// simulator, and Reader settings used to call it on every redraw, so opening
+/// Theme & typography at the largest text sizes stalled the main thread long
+/// enough to hang UI tests.
+enum VoiceCatalog {
+    @MainActor static private(set) var cached: [VoiceGroup]?
+    /// Counts reads, so one that finishes after a newer one started is dropped.
+    @MainActor private static var generation = 0
+
+    @MainActor static func load() async -> [VoiceGroup] {
+        generation += 1
+        let mine = generation
+        let list = await Task.detached(priority: .userInitiated) {
+            groups(from: AVSpeechSynthesisVoice.speechVoices().map {
+                VoiceOption(id: $0.identifier, name: $0.name, language: $0.language)
+            }, systemLanguage: AVSpeechSynthesisVoice.currentLanguageCode(),
+               languageName: { Locale.current.localizedString(forIdentifier: $0) })
+        }.value
+        guard mine == generation else { return cached ?? list }
+        cached = list
+        return list
+    }
+
+    /// Every voice grouped by language (#184): the system voice's language
+    /// first, then the rest by name, each group sorted by voice name.
+    static func groups(from all: [VoiceOption], systemLanguage: String,
+                       languageName: (String) -> String?) -> [VoiceGroup] {
+        Dictionary(grouping: all, by: \.language)
+            .map { tag, voices in
+                VoiceGroup(tag: tag,
+                           name: languageName(tag) ?? tag,
+                           voices: voices.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending })
+            }
+            .sorted { SpeechLanguage.listsBefore(($0.tag, $0.name), ($1.tag, $1.name), systemLanguage: systemLanguage) }
     }
 }
 
