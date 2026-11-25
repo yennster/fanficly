@@ -400,6 +400,7 @@ struct FandomWorksView: View {
                         description: Text(filterChips.isEmpty
                                           ? "Try adjusting your filters or search terms."
                                           : "Try removing a filter."))
+                        .scrollsWhenShort()
                 }
             } else if visibleWorks.isEmpty {
                 VStack(spacing: 0) {

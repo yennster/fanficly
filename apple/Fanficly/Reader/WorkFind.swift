@@ -191,6 +191,7 @@ struct WorkFindView: View {
             ContentUnavailableView("Find in This Work",
                                    systemImage: "text.magnifyingglass",
                                    description: Text("Search every loaded chapter's text. Nothing leaves your device."))
+                .scrollsWhenShort()
         } else if result.matches.isEmpty || searchedQuery != query {
             // The last query's rows go while a new search runs, so a tap
             // can't pick one of them.
@@ -198,6 +199,7 @@ struct WorkFindView: View {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ContentUnavailableView.search(text: query)
+                    .scrollsWhenShort()
             }
         } else {
             List {
