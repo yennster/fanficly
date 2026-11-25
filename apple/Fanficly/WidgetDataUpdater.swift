@@ -144,9 +144,8 @@ extension WidgetDataStore {
             }
             // Only the top of the list is kept, so only it is stripped and encoded.
             for w in works.prefix(listLimit) {
-                // Strip HTML tags from summary for widget preview
-                let cleanSummary = w.summary
-                    .replacingOccurrences(of: "<[^>]+>", with: "", options: String.CompareOptions.regularExpression)
+                // The saved summary is HTML: tags go and entities are decoded.
+                let cleanSummary = AO3WorkSummary.plainSummary(w.summary)
                     .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                 
                 // Collect a few key tags

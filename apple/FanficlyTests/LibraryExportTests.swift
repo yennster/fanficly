@@ -12,6 +12,24 @@ final class LibraryExportTests: XCTestCase {
         return ModelContext(try ModelContainer(for: AppSchema.schema, configurations: [config]))
     }
 
+    // MARK: - Row summaries
+
+    /// A work page's summary is HTML, and the Library and Recently Viewed
+    /// keep it so: a row shows it as text, never its tags.
+    func testRowSummaryDropsAWorkPagesHTML() {
+        XCTAssertEqual(AO3WorkSummary.plainSummary("<p>COMPLETE</p>\n<p>Hermione &amp; Draco.</p>"),
+                       "COMPLETE\nHermione & Draco.")
+        XCTAssertEqual(AO3WorkSummary.plainSummary("<p>One<br/>two <i>three</i></p>"), "One\ntwo three")
+    }
+
+    /// Search results already carry text: it stays exactly as it is.
+    func testRowSummaryLeavesPlainTextAlone() {
+        XCTAssertEqual(AO3WorkSummary.plainSummary("I <3 this & that > the rest"), "I <3 this & that > the rest")
+        XCTAssertEqual(AO3WorkSummary.plainSummary("<insert summary here>"), "<insert summary here>")
+        XCTAssertEqual(AO3WorkSummary.plainSummary("Rated <M> for language"), "Rated <M> for language")
+        XCTAssertEqual(AO3WorkSummary.plainSummary(""), "")
+    }
+
     // MARK: - CSV
 
     /// The Windows app's `LibraryCsvTests.ColumnsMatchTheAppleApp` pins the
