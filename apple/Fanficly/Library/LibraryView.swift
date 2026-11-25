@@ -622,6 +622,25 @@ struct FolderDetailView: View {
             }
             .listStyle(.plain)
             .environment(\.editMode, $editMode)
+            // On the List, not the VStack, so it never covers the edit
+            // mode Remove bar.
+            .overlay {
+                if folderWorks.isEmpty {
+                    // An empty folder isn't a search miss: say so, rather than
+                    // leaving a blank list (#201).
+                    ContentUnavailableView {
+                        Label("No stories in this folder yet", systemImage: "folder")
+                    } description: {
+                        Text("In the Library, open a story's menu and choose Folders... to add it here.")
+                    }
+                    .scrollsWhenShort()
+                } else if !query.isEmpty && filteredWorks.isEmpty {
+                    // Scrolls rather than spilling over the search field when
+                    // the keyboard leaves it too little room.
+                    ContentUnavailableView.search(text: searchText)
+                        .scrollsWhenShort()
+                }
+            }
 
             if editMode == .active {
                 Divider()
@@ -672,23 +691,6 @@ struct FolderDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: { _ in
             Text("Stories download one at a time. You can cancel anytime, and the ones already downloaded stay.")
-        }
-        .overlay {
-            if folderWorks.isEmpty {
-                // An empty folder isn't a search miss: say so, rather than
-                // leaving a blank list (#201).
-                ContentUnavailableView {
-                    Label("No stories in this folder yet", systemImage: "folder")
-                } description: {
-                    Text("In the Library, open a story's menu and choose Folders... to add it here.")
-                }
-                .scrollsWhenShort()
-            } else if !query.isEmpty && filteredWorks.isEmpty {
-                // Scrolls rather than spilling over the search field when
-                // the keyboard leaves it too little room.
-                ContentUnavailableView.search(text: searchText)
-                    .scrollsWhenShort()
-            }
         }
         .toolbar {
             if editMode != .active {
