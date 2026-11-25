@@ -25,6 +25,8 @@ final class LibraryExportTests: XCTestCase {
     /// Search results already carry text: it stays exactly as it is.
     func testRowSummaryLeavesPlainTextAlone() {
         XCTAssertEqual(AO3WorkSummary.plainSummary("I <3 this & that > the rest"), "I <3 this & that > the rest")
+        XCTAssertEqual(AO3WorkSummary.plainSummary("<insert summary here>"), "<insert summary here>")
+        XCTAssertEqual(AO3WorkSummary.plainSummary("Rated <M> for language"), "Rated <M> for language")
         XCTAssertEqual(AO3WorkSummary.plainSummary(""), "")
     }
 

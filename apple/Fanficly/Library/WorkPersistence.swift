@@ -125,7 +125,7 @@ enum WorkPersistence {
     static let spotlightDomain = "io.github.yennster.fanficly.works"
 
     /// Set once the launch task has rebuilt the index from the whole library.
-    static let spotlightReindexedKey = "spotlight.reindexed.v1"
+    static let spotlightReindexedKey = "spotlight.reindexed.v2"
 
     /// What Spotlight shows for one library work. A Sendable value so items
     /// can be built off the main actor, in the index's completion handler.

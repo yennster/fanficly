@@ -683,8 +683,8 @@ WidgetKit reload (#200).
   `work-<id>` in the `WorkPersistence.spotlightDomain` domain, on-device only:
   `upsertMetadata` indexes (not in demo mode: the index is the device's
   own), `WorkPersistence.delete` deindexes (Library's delete and a restore applying another device's), and `reindexLibrary` rebuilds the
-  domain once at launch (`spotlight.reindexed.v1`, for works saved when only
-  followed ones were indexed). An iCloud restore or a library file import (`applyBackup`) inserts works without
+  domain once at launch (`spotlight.reindexed.v2`: v1 for works saved when only
+  followed ones were indexed, v2 for descriptions indexed as HTML). An iCloud restore or a library file import (`applyBackup`) inserts works without
   `upsertMetadata`, so it calls `indexLibrary`, which indexes every work
   without clearing the domain. Don't rebuild every launch: it empties the
   app's Spotlight results while it runs. A tapped result arrives as

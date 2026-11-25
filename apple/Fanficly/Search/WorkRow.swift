@@ -217,12 +217,15 @@ extension AO3WorkSummary {
     /// The summary as plain text for a row. Search and Browse results carry
     /// AO3's summary as text already, but a work page's summary is HTML, and
     /// that is what the Library and Recently Viewed keep, so its tags would
-    /// show in the row. Text without HTML tags is left as it is, so a summary
-    /// like "I <3 this" keeps its "<3".
+    /// show in the row. Only the tags AO3 allows in a summary count as HTML;
+    /// other text is left as it is, so search text like "I <3 this" or
+    /// "<insert summary here>" (AO3 has already decoded its `&lt;`) stays.
     var plainSummary: String { Self.plainSummary(summary) }
 
+    private static let summaryTag = #"</?(p|br|i|b|em|strong|u|s|strike|del|ins|a|blockquote|div|span|ul|ol|li|dl|dt|dd|h[1-6]|hr|sub|sup|small|big|code|pre|img|abbr|acronym|cite|q|center|font|table|caption|thead|tbody|tfoot|tr|td|th)(\s[^>]*)?/?>"#
+
     static func plainSummary(_ summary: String) -> String {
-        guard summary.range(of: #"</?[A-Za-z][A-Za-z0-9]*(\s[^>]*)?/?>"#, options: .regularExpression) != nil
+        guard summary.range(of: summaryTag, options: [.regularExpression, .caseInsensitive]) != nil
         else { return summary }
         return LibraryCSV.plainText(fromHTML: summary)
     }
