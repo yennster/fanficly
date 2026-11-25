@@ -155,7 +155,8 @@ enum WorkPersistence {
             ao3Id: work.ao3Id,
             title: work.title,
             author: work.authorName,
-            summary: work.summary,
+            // The saved summary is HTML; Spotlight shows plain text.
+            summary: AO3WorkSummary.plainSummary(work.summary),
             keywords: work.fandoms + work.relationships + work.characters
         )
     }

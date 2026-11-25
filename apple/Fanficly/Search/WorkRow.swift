@@ -64,8 +64,9 @@ struct WorkRow: View {
                         .fixedSize(horizontal: true, vertical: false)
                     }
                 }
-                if !work.summary.isEmpty {
-                    Text(work.summary).font(.callout).lineLimit(3).foregroundStyle(.primary)
+                let summary = work.plainSummary
+                if !summary.isEmpty {
+                    Text(summary).font(.callout).lineLimit(3).foregroundStyle(.primary)
                 }
             }
             // Combine only the text stack, so the inline bookmark button stays
@@ -209,5 +210,20 @@ struct ChipView: View {
         case .include: Color.accentColor
         case .exclude: Color.red
         }
+    }
+}
+
+extension AO3WorkSummary {
+    /// The summary as plain text for a row. Search and Browse results carry
+    /// AO3's summary as text already, but a work page's summary is HTML, and
+    /// that is what the Library and Recently Viewed keep, so its tags would
+    /// show in the row. Text without HTML tags is left as it is, so a summary
+    /// like "I <3 this" keeps its "<3".
+    var plainSummary: String { Self.plainSummary(summary) }
+
+    static func plainSummary(_ summary: String) -> String {
+        guard summary.range(of: #"</?[A-Za-z][A-Za-z0-9]*(\s[^>]*)?/?>"#, options: .regularExpression) != nil
+        else { return summary }
+        return LibraryCSV.plainText(fromHTML: summary)
     }
 }
