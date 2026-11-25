@@ -35,8 +35,12 @@ private struct FirstLineCentering: ViewModifier {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     func body(content: Content) -> some View {
-        // The font SwiftUI draws the style with at this text size.
-        let traits = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(dynamicTypeSize))
+        // The font SwiftUI draws the style with at this text size, on this
+        // idiom (the Mac's headline is smaller than the iPhone's).
+        let traits = UITraitCollection(traitsFrom: [
+            UITraitCollection(userInterfaceIdiom: UIDevice.current.userInterfaceIdiom),
+            UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(dynamicTypeSize)),
+        ])
         let capHeight = UIFont.preferredFont(forTextStyle: style, compatibleWith: traits).capHeight
         content.alignmentGuide(.firstTextBaseline) { d in
             d[VerticalAlignment.center] + capHeight / 2
