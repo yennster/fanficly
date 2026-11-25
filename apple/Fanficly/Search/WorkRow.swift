@@ -31,6 +31,7 @@ struct WorkRow: View {
                     Text(work.title).font(.headline)
                     if let shownBadge {
                         ResultBadgeView(badge: shownBadge)
+                            .centeredOnFirstLine(of: .headline)
                     }
                 }
                 Text("by \(work.author)").font(.subheadline).foregroundStyle(.secondary)

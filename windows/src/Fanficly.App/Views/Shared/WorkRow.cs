@@ -69,8 +69,8 @@ public static class WorkRow
         // The title wraps; the badge, when there is one, sits at the line's end.
         var titleLine = UI.UI.Grid("*,Auto", columnSpacing: 6);
         titleLine.Children.Add(UI.UI.Text(work.Title, Theme.Style.Headline).Col(0));
-        var badgeHost = new Border { VerticalAlignment = VerticalAlignment.Top }.A11yHidden();
-        titleLine.Children.Add(badgeHost.Col(1));
+        var badgeHost = new Border().A11yHidden();
+        titleLine.Children.Add(UI.UI.CenteredOnFirstLine(badgeHost, Theme.Style.Headline).Col(1));
 
         var text = UI.UI.VStack(4,
             titleLine,
@@ -131,7 +131,6 @@ public static class WorkRow
             Background = badge.Kind == ResultBadgeKind.Finished ? Theme.SubtleFill : Theme.AccentSubtle,
             CornerRadius = new CornerRadius(5),
             Padding = new Thickness(7, 2, 7, 2),
-            Margin = new Thickness(0, 2, 0, 0),
         }.A11yHidden();
     }
 }

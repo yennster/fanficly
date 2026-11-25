@@ -160,6 +160,25 @@ public static class UI
     /// 0 means no limit, as <see cref="Text"/>'s <c>maxLines</c> takes it.</summary>
     public static int LineLimit(int lines) => IsLargeText ? 0 : lines;
 
+    /// <summary>Holds a badge or status icon beside a title in <paramref name="style"/>
+    /// so the badge's middle sits on the middle of the title's capitals on its first
+    /// line (SwiftUI: <c>centeredOnFirstLine(of:)</c>). Put the returned box in the
+    /// title's row; a title that wraps keeps the badge on its first line.</summary>
+    public static Grid CenteredOnFirstLine(FrameworkElement element, Theme.Style style)
+    {
+        var (size, _, _) = Theme.Metrics(style);
+        var em = size * TextScale; // text and badge both scale with the Windows text size
+        // Segoe UI: a line is 1.33 em tall, the baseline 1.08 em below its top and
+        // capitals 0.70 em tall, so their middle is 0.73 em down, 0.065 em below the
+        // line's middle. The box is one line tall (an empty one never makes the row
+        // taller); the shift doesn't change layout either.
+        element.VerticalAlignment = VerticalAlignment.Center;
+        element.RenderTransform = new TranslateTransform { Y = 0.065 * em };
+        var box = new Grid { VerticalAlignment = VerticalAlignment.Top, MinHeight = 1.33 * em };
+        box.Children.Add(element);
+        return box;
+    }
+
     public enum ButtonKind { Standard, Accent, Subtle, Destructive }
 
     public static Button Button(string text, Action onClick, string? sfSymbol = null, ButtonKind kind = ButtonKind.Standard)

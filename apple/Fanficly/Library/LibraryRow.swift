@@ -56,6 +56,7 @@ struct LibraryRow: View {
                     starred: work.isStarred,
                     downloaded: downloaded
                 )
+                .centeredOnFirstLine(of: .headline)
             }
             Text("by \(work.authorName)")
                 .font(.subheadline)

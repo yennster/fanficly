@@ -33,12 +33,10 @@ public static class LibraryRow
         // Line limits lift at large text sizes, so nothing ends in "…".
         titleRow.Children.Add(UI.UI.Text(work.Title, Theme.Style.Headline, maxLines: UI.UI.LineLimit(2)).Col(0));
         var badges = UI.UI.HStack(5);
-        badges.VerticalAlignment = VerticalAlignment.Top;
-        badges.Margin = new Thickness(0, 3, 0, 0);
         if (work.IsPinned) { badges.Children.Add(UI.UI.Icon("pin.fill", 11, Theme.Accent)); spoken.Add("Pinned"); }
         if (work.IsStarred) { badges.Children.Add(UI.UI.Icon("star.fill", 11, Theme.Warning)); spoken.Add("Starred"); }
         if (downloaded) { badges.Children.Add(UI.UI.Icon("arrow.down.circle.fill", 11, Theme.Success)); spoken.Add("Downloaded"); }
-        titleRow.Children.Add(badges.Col(1));
+        titleRow.Children.Add(UI.UI.CenteredOnFirstLine(badges, Theme.Style.Headline).Col(1));
 
         var stack = UI.UI.VStack(6, titleRow, UI.UI.Secondary($"by {work.AuthorName}", maxLines: UI.UI.LineLimit(1)));
 
