@@ -83,3 +83,25 @@ struct FlowLayout: Layout {
         return rows
     }
 }
+
+/// Keeps an empty state (a `ContentUnavailableView`) inside its own frame.
+/// Centered as usual when there's room; when the keyboard, a short window
+/// or iPhone Duo's outer display leave less height than it needs, it
+/// scrolls instead of spilling up over the search field and filter chips.
+struct ScrollsWhenShort: ViewModifier {
+    func body(content: Content) -> some View {
+        GeometryReader { proxy in
+            ScrollView {
+                content
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollDismissesKeyboard(.interactively)
+        }
+    }
+}
+
+extension View {
+    /// See `ScrollsWhenShort`.
+    func scrollsWhenShort() -> some View { modifier(ScrollsWhenShort()) }
+}

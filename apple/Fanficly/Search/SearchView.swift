@@ -336,6 +336,7 @@ struct SearchView: View {
             } actions: {
                 Button("Try Again") { startSearch() }
             }
+            .scrollsWhenShort()
         } else if let error = errorMessage {
             ContentUnavailableView {
                 Label("Search failed", systemImage: "exclamationmark.triangle")
@@ -344,6 +345,7 @@ struct SearchView: View {
             } actions: {
                 Button("Try Again") { startSearch() }
             }
+            .scrollsWhenShort()
         } else if !hasSearched {
             startView
         } else if results.isEmpty {
@@ -361,6 +363,9 @@ struct SearchView: View {
                     }
                 }
             }
+            // With the keyboard up, a centered empty state ran up over the
+            // search field and the filter chips.
+            .scrollsWhenShort()
         } else if visibleResults.isEmpty {
             FilteredOutView(message: "Every match so far is hidden or filtered out by your content settings.",
                             canLoadMore: currentPage < totalPages, isLoadingMore: isLoadingMore,
@@ -457,6 +462,7 @@ struct SearchView: View {
             } actions: {
                 Button("Search Tips") { showingHelp = true }
             }
+            .scrollsWhenShort()
         } else {
             List {
                 if !recents.isEmpty {

@@ -81,6 +81,22 @@ struct LibraryView: View {
         return LibrarySort(keyRaw: sortKeyRaw, ascending: sortAscending).sorted(base)
     }
 
+    /// A search that matches nothing in the current filter.
+    private var showsNoSearchResults: Bool {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !query.isEmpty else { return false }
+        if filter == .folders {
+            // The same match as the folder rows, so the empty state never
+            // shows under a folder listed for a story inside it.
+            return !visibleFolders.contains(where: { folder in
+                folder.name.lowercased().contains(query) || folder.works.contains(where: {
+                    $0.matches(query: query) && !UndoCenter.shared.isPending(UndoCenter.Key.work($0.ao3Id))
+                })
+            })
+        }
+        return filtered.isEmpty
+    }
+
     var body: some View {
         Group {
             if visibleWorks.isEmpty {
@@ -318,18 +334,20 @@ struct LibraryView: View {
                             }
                         }
                     }
-                }
-                .listStyle(.plain)
-                .overlay {
-                    if filter != .folders && filtered.isEmpty && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        ContentUnavailableView.search(text: searchText)
-                    } else if filter == .folders && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                        if !visibleFolders.contains(where: { $0.name.lowercased().contains(query) }) {
+                    // A row under the chips, not an overlay: an overlay
+                    // centers on the whole list, so with the keyboard up
+                    // (or on iPhone Duo's outer display) it drew over the
+                    // stats strip and the filter chips.
+                    if showsNoSearchResults {
+                        Section {
                             ContentUnavailableView.search(text: searchText)
+                                .frame(maxWidth: .infinity)
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
                         }
                     }
                 }
+                .listStyle(.plain)
             }
         }
         .navigationTitle("Library")
@@ -604,6 +622,25 @@ struct FolderDetailView: View {
             }
             .listStyle(.plain)
             .environment(\.editMode, $editMode)
+            // On the List, not the VStack, so it never covers the edit
+            // mode Remove bar.
+            .overlay {
+                if folderWorks.isEmpty {
+                    // An empty folder isn't a search miss: say so, rather than
+                    // leaving a blank list (#201).
+                    ContentUnavailableView {
+                        Label("No stories in this folder yet", systemImage: "folder")
+                    } description: {
+                        Text("In the Library, open a story's menu and choose Folders... to add it here.")
+                    }
+                    .scrollsWhenShort()
+                } else if !query.isEmpty && filteredWorks.isEmpty {
+                    // Scrolls rather than spilling over the search field when
+                    // the keyboard leaves it too little room.
+                    ContentUnavailableView.search(text: searchText)
+                        .scrollsWhenShort()
+                }
+            }
 
             if editMode == .active {
                 Divider()
@@ -654,19 +691,6 @@ struct FolderDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: { _ in
             Text("Stories download one at a time. You can cancel anytime, and the ones already downloaded stay.")
-        }
-        .overlay {
-            if folderWorks.isEmpty {
-                // An empty folder isn't a search miss: say so, rather than
-                // leaving a blank list (#201).
-                ContentUnavailableView {
-                    Label("No stories in this folder yet", systemImage: "folder")
-                } description: {
-                    Text("In the Library, open a story's menu and choose Folders... to add it here.")
-                }
-            } else if !query.isEmpty && filteredWorks.isEmpty {
-                ContentUnavailableView.search(text: searchText)
-            }
         }
         .toolbar {
             if editMode != .active {
