@@ -155,14 +155,18 @@ public static partial class EpubImport
     /// work's EPUB so it shows as Downloaded. A work already in the Library (an
     /// AO3 book) keeps its AO3 details and reading position and takes the
     /// book's chapters, unless it already holds more of them; a new one gets the book's details too. Saves and queues
-    /// a backup like every <see cref="WorkPersistence"/> change.</summary>
-    public static Work Save(AO3WorkPayload payload, byte[] epub, LibraryStore store)
+    /// a backup like every <see cref="WorkPersistence"/> change, unless <paramref name="queueBackup"/>
+    /// is false (a folder import queues one at the end, #418). <paramref name="replacingDetails"/>
+    /// (a folder import's better copy of a work it added from another copy)
+    /// takes the book's details as for a new work.</summary>
+    public static Work Save(AO3WorkPayload payload, byte[] epub, LibraryStore store, bool queueBackup = true,
+                            bool replacingDetails = false)
     {
         Work work;
         // The file becomes the work's saved EPUB only when its text is the one
         // kept, so Export never shares a shorter book than the reader shows (#173).
         var keepsFile = true;
-        if (store.GetWork(payload.Summary.Id) is { } existing)
+        if (!replacingDetails && store.GetWork(payload.Summary.Id) is { } existing)
         {
             work = existing;
             // An older download with fewer chapters never replaces more text
@@ -184,7 +188,7 @@ public static partial class EpubImport
         }
         if (!keepsFile)
         {
-            LibrarySyncManager.QueueBackupShared(store);
+            if (queueBackup) LibrarySyncManager.QueueBackupShared(store);
             return work;
         }
         Directory.CreateDirectory(WorkPersistence.LibraryFolder);
@@ -192,7 +196,7 @@ public static partial class EpubImport
         var temp = target + ".tmp";
         File.WriteAllBytes(temp, epub);
         File.Move(temp, target, overwrite: true);
-        LibrarySyncManager.QueueBackupShared(store);
+        if (queueBackup) LibrarySyncManager.QueueBackupShared(store);
         return work;
     }
 

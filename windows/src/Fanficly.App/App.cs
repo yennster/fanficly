@@ -37,6 +37,7 @@ public sealed partial class App : Application, IXamlMetadataProvider
         AppHost.OnWindowCreated(Window);
         Views.Settings.AppearanceSettings.Apply();
         Views.Library.RestoreBanner.Attach(Window.MessagesHost);
+        Views.Library.EpubImportBanner.Attach(Window.MessagesHost);
         Window.Start(AppHost.InitialTab);
         Window.Activate();
         Window.MaximizeIfItWasMaximized();

@@ -280,6 +280,13 @@ Each item is a heading `### RM-nnn — Title` followed by a `Status:` line that 
 - **Done when:** `LibraryCsvTests` covers what the Apple tests do (CSV and bulk EPUB); on Windows, the CSV opens in Excel with non-English titles intact and a few exported EPUBs open in a reader.
 - **Touches:** `Fanficly.Core/Library/LibraryCsv.cs`, `Fanficly.Core/Library/BulkEpubExport.cs`, `Views/Settings/SettingsScreen.cs`, `Views/Settings/SyncSettingsScreen.cs`.
 
+### RM-129 — Import a whole folder of EPUBs
+- **Status:** done · **Size:** M · **Validation:** unit + windows
+- **Why:** Importing EPUBs went file by file. A backup from another reader, or the folder "Export All My Data" writes (#417), should go into the Library in one go (#418). Ports RM-035 in `apple/docs/ROADMAP.md`, built in the same PR.
+- **Scope:** Import Folder in the Library's toolbar (a `FolderPicker`), and a folder (or EPUB files) dropped on the window, import every `.epub` under it, subfolders included (Core's `EpubFolderImport.FindEpubs`), one file at a time through `EpubImport.Parse` and `Save` (the existing merge). Two copies of one work keep the one with more chapters. `EpubImportBanner` shows "Importing 37 of 212…" with Cancel wherever the user is, Narrator hears the count every tenth of the way, one backup at the end, and the dialog gives imported, updated, skipped and failed counts with the first five failures listed. Offline, no AO3 requests.
+- **Done when:** `EpubImportTests`' folder tests (nested subfolders, a text file, a broken EPUB, an unpacked EPUB folder, a work already in the Library and two copies of one work give the right counts and no duplicate works; Cancel keeps what was saved); on Windows, a folder imported from the picker and by drag and drop.
+- **Touches:** `src/Fanficly.Core/Library/EpubFolderImport.cs`, `EpubImport.cs`, `src/Fanficly.App/Views/Library/EpubImporter.cs`, `EpubImportBanner.cs`, `LibraryScreen.cs`, `Services/AppRouting.cs`, `App.cs`.
+
 ### RM-109 — Localization groundwork
 - **Status:** done · **Size:** M · **Validation:** windows
 - **Why:** Every string is English and inline in C#.

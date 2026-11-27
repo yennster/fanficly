@@ -19,7 +19,7 @@ struct LibraryView: View {
     @State private var workMovingToFolder: Work?
     @State private var workEditingNotes: Work?
     @State private var searchText = ""
-    @State private var showingEPUBImporter = false
+    @State private var epubPick: EPUBImportCenter.Pick?
     @State private var epubImport = EPUBImportCenter.shared
     @Environment(\.ao3Client) private var client
     @State private var downloads = LibraryDownloads.shared
@@ -105,8 +105,12 @@ struct LibraryView: View {
                 } description: {
                     Text("Tap the bookmark to follow a story, or Download to read it without a connection. No AO3 account needed. Already have EPUB files, like AO3 downloads? Import them to read here.")
                 } actions: {
-                    Button("Import EPUB…") { showingEPUBImporter = true }
+                    Button("Import EPUB…") { epubPick = .files }
                         .disabled(epubImport.isImporting)
+                    Button("Import Folder…") { epubPick = .folder }
+                        .disabled(epubImport.isImporting)
+                        .help("Import every EPUB in a folder, subfolders included")
+                        .accessibilityHint("Adds every EPUB file in a folder and its subfolders to the Library.")
                 }
             } else {
                 // Read here so a row's Downloaded badge updates when its
@@ -355,8 +359,19 @@ struct LibraryView: View {
         .modifier(SearchableFindShortcut())
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showingEPUBImporter = true
+                Menu {
+                    Button {
+                        epubPick = .files
+                    } label: {
+                        Label("EPUB Files…", systemImage: "doc")
+                    }
+                    .accessibilityHint("Adds EPUB files from your device to the Library to read offline.")
+                    Button {
+                        epubPick = .folder
+                    } label: {
+                        Label("Folder of EPUBs…", systemImage: "folder")
+                    }
+                    .accessibilityHint("Adds every EPUB file in a folder and its subfolders to the Library.")
                 } label: {
                     if epubImport.isImporting {
                         ProgressView()
@@ -365,12 +380,12 @@ struct LibraryView: View {
                     }
                 }
                 .disabled(epubImport.isImporting)
-                .help("Import EPUB files, like AO3 downloads, to read offline")
+                .help("Import EPUB files, like AO3 downloads, or a whole folder of them (subfolders included) to read offline")
                 .accessibilityLabel("Import EPUB")
-                .accessibilityHint("Adds EPUB files from your device to the Library to read offline.")
+                .accessibilityHint("Adds EPUB files, or every EPUB in a folder, to the Library to read offline.")
             }
         }
-        .epubImporter(isPresented: $showingEPUBImporter, context: context)
+        .epubImporter(picking: $epubPick, context: context)
         .navigationDestination(for: Work.self) { work in
             SavedWorkReader(work: work)
         }

@@ -137,6 +137,151 @@ final class EPUBImportTests: XCTestCase {
         XCTAssertEqual(EPUBImportCenter.outcome(saved: ["A"], failures: ["b: bad"]).title, "Imported 1 of 2")
     }
 
+    // MARK: - Folder import (#418)
+
+    private func makeContext() throws -> ModelContext {
+        let container = try ModelContainer(for: AppSchema.schema, configurations: [
+            ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none),
+        ])
+        return ModelContext(container)
+    }
+
+    /// A folder with nested subfolders, a text file, a broken EPUB, an
+    /// unpacked EPUB folder, a book already in the Library and two copies of
+    /// one AO3 work: one new work, one update, one skipped copy, one failure.
+    func testFolderImportCountsAndKeepsOneEntryPerWork() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("folder-import-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: root.appendingPathComponent("Fandom/Older/Even older"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: root.appendingPathComponent("Unpacked.epub/OEBPS"), withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+        try Data("notes".utf8).write(to: root.appendingPathComponent("notes.txt"))
+        try Data("AppleDouble".utf8).write(to: root.appendingPathComponent("._A Plain Book.epub"))
+        try Data("<html/>".utf8).write(to: root.appendingPathComponent("Unpacked.epub/OEBPS/one.xhtml"))
+        try Self.ao3EPUB.write(to: root.appendingPathComponent("Fandom/The Long Way Home.epub"))
+        try Self.ao3EPUB.write(to: root.appendingPathComponent("Fandom/Older/Even older/The Long Way Home (12345).EPUB"))
+        try Data("not a zip".utf8).write(to: root.appendingPathComponent("Fandom/Older/broken.epub"))
+        try Self.plainEPUB.write(to: root.appendingPathComponent("A Plain Book.epub"))
+
+        let context = try makeContext()
+        let plain = try EPUBImport.parse(data: Self.plainEPUB)
+        defer {
+            for id in [12345, plain.summary.id] {
+                if let url = WorkPersistence.epubURL(workId: id) { try? fm.removeItem(at: url) }
+            }
+        }
+        _ = try EPUBImportCenter.save(plain, epub: Self.plainEPUB, into: context)
+
+        let files = EPUBImportCenter.epubFiles(in: root)
+        XCTAssertEqual(files.map(\.lastPathComponent),
+                       ["A Plain Book.epub", "broken.epub", "The Long Way Home (12345).EPUB", "The Long Way Home.epub"])
+
+        var reported: [Int] = []
+        let result = await EPUBImportCenter.importEPUBs(files, context: context, progress: { done, _ in reported.append(done) })
+        XCTAssertEqual(result.found, 4)
+        XCTAssertEqual(result.processed, 4)
+        XCTAssertEqual(result.imported, 1)
+        XCTAssertEqual(result.updated, 1)
+        XCTAssertEqual(result.skipped, 1)
+        XCTAssertEqual(result.failures.count, 1)
+        XCTAssertTrue(result.failures[0].hasPrefix("broken.epub: "))
+        XCTAssertFalse(result.cancelled)
+        XCTAssertEqual(reported, [0, 1, 2, 3, 4])
+        let works = try context.fetch(FetchDescriptor<Work>())
+        XCTAssertEqual(Set(works.map(\.ao3Id)), [12345, plain.summary.id])
+        XCTAssertNotNil(WorkPersistence.epubURL(workId: 12345))
+
+        let outcome = EPUBImportCenter.folderOutcome(result)
+        XCTAssertEqual(outcome.title, "Imported")
+        XCTAssertEqual(outcome.message, """
+            1 new story added to your Library.
+            1 story already in your Library updated.
+            1 extra copy of a story skipped.
+            1 file couldn't be imported:
+            \(result.failures[0])
+            """)
+    }
+
+    func testFolderImportStopsWhenCancelledAndKeepsWhatItSaved() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("folder-cancel-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+        try Self.ao3EPUB.write(to: root.appendingPathComponent("a.epub"))
+        try Self.plainEPUB.write(to: root.appendingPathComponent("b.epub"))
+        let context = try makeContext()
+        defer { if let url = WorkPersistence.epubURL(workId: 12345) { try? fm.removeItem(at: url) } }
+
+        var checks = 0
+        let result = await EPUBImportCenter.importEPUBs(EPUBImportCenter.epubFiles(in: root), context: context,
+                                                        isCancelled: { checks += 1; return checks > 1 })
+        XCTAssertTrue(result.cancelled)
+        XCTAssertEqual(result.processed, 1)
+        XCTAssertEqual(result.imported, 1)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<Work>()).map(\.ao3Id), [12345])
+        XCTAssertEqual(EPUBImportCenter.folderOutcome(result).title, "Import stopped")
+        XCTAssertTrue(EPUBImportCenter.folderOutcome(result).message.hasPrefix("Stopped after 1 of 2 files."))
+    }
+
+    /// Two copies of one work keep the one with more chapters, and the other counts as skipped.
+    func testFolderTallyKeepsTheCopyWithMoreChapters() {
+        var tally = EPUBImportCenter.FolderTally()
+        XCTAssertTrue(tally.shouldSave(workId: 7, chapters: 2))
+        tally.saved(workId: 7, chapters: 2, wasInLibrary: false)
+        XCTAssertFalse(tally.shouldSave(workId: 7, chapters: 2))
+        XCTAssertFalse(tally.shouldSave(workId: 7, chapters: 1))
+        XCTAssertTrue(tally.shouldSave(workId: 7, chapters: 3))
+        tally.saved(workId: 7, chapters: 3, wasInLibrary: true)
+        XCTAssertFalse(tally.shouldSave(workId: 7, chapters: 3))
+        tally.skippedCopy()
+        XCTAssertTrue(tally.shouldSave(workId: 8, chapters: 1))
+        tally.saved(workId: 8, chapters: 1, wasInLibrary: true)
+        XCTAssertEqual(tally.result.imported, 1)
+        XCTAssertEqual(tally.result.updated, 1)
+        XCTAssertEqual(tally.result.skipped, 2)
+        XCTAssertEqual(tally.result.savedIds, [7, 8])
+        // A work this import added takes a better copy's details too; one the
+        // Library already had keeps its own.
+        XCTAssertTrue(tally.replacesDetails(workId: 7))
+        XCTAssertFalse(tally.replacesDetails(workId: 8))
+        XCTAssertFalse(tally.replacesDetails(workId: 9))
+    }
+
+    /// The copy with more chapters wins the details as well as the text when
+    /// the import added the work from a smaller copy.
+    func testABetterCopyReplacesTheDetailsOfAWorkThisImportAdded() throws {
+        let context = try makeContext()
+        let full = try EPUBImport.parse(data: Self.ao3EPUB)
+        defer { if let url = WorkPersistence.epubURL(workId: 12345) { try? FileManager.default.removeItem(at: url) } }
+        let first = try EPUBImportCenter.save(AO3WorkPayload(summary: full.summary, chapters: [full.chapters[0]]),
+                                              epub: Self.ao3EPUB, into: context)
+        first.title = "From the older copy"
+        let work = try EPUBImportCenter.save(full, epub: Self.ao3EPUB, into: context, replacingDetails: true)
+        XCTAssertEqual(work.title, "The Long Way Home")
+        XCTAssertEqual(work.chapters.count, 2)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<Work>()).count, 1)
+    }
+
+    func testFolderOutcomeListsTheFirstFailuresAndSumsUpTheRest() {
+        var result = EPUBImportCenter.FolderResult(found: 9, processed: 9, imported: 2)
+        result.failures = (1...7).map { "f\($0).epub: bad" }
+        let outcome = EPUBImportCenter.folderOutcome(result)
+        XCTAssertEqual(outcome.title, "Imported")
+        XCTAssertEqual(outcome.message, """
+            2 new stories added to your Library.
+            7 files couldn't be imported:
+            f1.epub: bad
+            f2.epub: bad
+            f3.epub: bad
+            f4.epub: bad
+            f5.epub: bad
+            …and 2 more.
+            """)
+        XCTAssertEqual(EPUBImportCenter.folderOutcome(EPUBImportCenter.FolderResult()).title, "No EPUBs found")
+        XCTAssertEqual(EPUBImportCenter.folderOutcome(EPUBImportCenter.FolderResult(found: 1, processed: 1, failures: ["x: bad"])).title,
+                       "Couldn't import")
+    }
+
     private static let ao3EPUB = Data(base64Encoded: """
         UEsDBBQAAAAAAAAAIQBvYassFAAAABQAAAAIAAAAbWltZXR5cGVhcHBsaWNhdGlvbi9lcHViK3ppcFBLAwQUAAAACADKtl5dHgvX
         yZkAAADdAAAAFgAAAE1FVEEtSU5GL2NvbnRhaW5lci54bWxVjsEOwiAQRH+l4Wpa9EoAExPPmvgFK90qEXYJUKN/L3qoeptk5s2M
