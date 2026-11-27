@@ -435,6 +435,80 @@ final class PersistenceTests: XCTestCase {
         XCTAssertEqual(try ctx.fetch(FetchDescriptor<ReadingProgress>()).count, 1)
     }
 
+    // #337: chapter 20 was read on another device, this one last saw chapter 12.
+    // Opening here at 20 and closing without moving keeps 20 as this device's
+    // own place, stamped with the synced entry's date, so the Library row shows
+    // it and a later open finds it once the synced entry is for another story.
+    func test_openingAtFresherSyncedPlace_keepsItLocallyWithTheSyncedDate() throws {
+        let ctx = try makeContext()
+        let work = WorkPersistence.upsert(payload: payload(id: 42, chapters: 24), into: ctx)
+        ReadingProgressStore.save(ao3Id: 42, anchor: ReadingAnchor(chapter: 12, paragraph: 4),
+                                  title: "T", author: "A", in: ctx)
+        let savedAt = try XCTUnwrap(ctx.fetch(FetchDescriptor<ReadingProgress>()).first?.updatedAt)
+        let syncedAt = savedAt.addingTimeInterval(60)
+        let synced = WidgetStoryProgress(id: 42, title: "T", author: "A", progress: 0.8,
+                                         chapter: 20, paragraph: 7, updatedAt: syncedAt)
+
+        let opened = ReadingProgressStore.openingAnchor(ao3Id: 42, synced: synced, in: ctx)
+        XCTAssertEqual(opened, ReadingAnchor(chapter: 20, paragraph: 7))
+
+        // What the reader's close does: save its place unless it never moved.
+        var gate = OpenedAnchorGate(openedAnchor: opened)
+        if let opened, gate.allowsSave(of: opened) {
+            ReadingProgressStore.save(ao3Id: 42, anchor: opened, title: "T", author: "A", in: ctx)
+        }
+
+        let records = try ctx.fetch(FetchDescriptor<ReadingProgress>())
+        XCTAssertEqual(records.count, 1)
+        let rec = try XCTUnwrap(records.first)
+        XCTAssertEqual(rec.chapterIndex, 20)
+        XCTAssertEqual(rec.paragraphIndex, 7)
+        XCTAssertEqual(rec.updatedAt, syncedAt, "the synced date, not re-stamped as now")
+        XCTAssertEqual(work.lastReadChapter, 20)
+        XCTAssertEqual(work.lastReadProgress, 0.8)
+        XCTAssertEqual(work.lastReadAt, syncedAt)
+
+        // The other device moves on to another story: this one still opens at 20.
+        let otherStory = WidgetStoryProgress(id: 7, title: "U", author: "B", progress: 0.1,
+                                             chapter: 2, paragraph: 0, updatedAt: syncedAt.addingTimeInterval(60))
+        XCTAssertEqual(ReadingProgressStore.openingAnchor(ao3Id: 42, synced: otherStory, in: ctx),
+                       ReadingAnchor(chapter: 20, paragraph: 7))
+        XCTAssertEqual(ReadingProgressStore.openingAnchor(ao3Id: 42, synced: nil, in: ctx),
+                       ReadingAnchor(chapter: 20, paragraph: 7))
+        XCTAssertEqual(try ctx.fetch(FetchDescriptor<ReadingProgress>()).first?.updatedAt, syncedAt)
+    }
+
+    // Never read here: the synced place becomes this device's record, with its date.
+    func test_openingAtSyncedPlaceWithNoLocalProgress_recordsIt() throws {
+        let ctx = try makeContext()
+        let syncedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let synced = WidgetStoryProgress(id: 42, title: "T", author: "A", progress: 0.3,
+                                         chapter: 3, paragraph: 2, updatedAt: syncedAt)
+        XCTAssertEqual(ReadingProgressStore.openingAnchor(ao3Id: 42, synced: synced, in: ctx),
+                       ReadingAnchor(chapter: 3, paragraph: 2))
+        let rec = try XCTUnwrap(ctx.fetch(FetchDescriptor<ReadingProgress>()).first)
+        XCTAssertEqual(rec.chapterIndex, 3)
+        XCTAssertEqual(rec.updatedAt, syncedAt)
+        XCTAssertEqual(ReadingProgressStore.openingAnchor(ao3Id: 42, synced: nil, in: ctx),
+                       ReadingAnchor(chapter: 3, paragraph: 2))
+    }
+
+    // This device's own place (a tie or newer) is left exactly as it was.
+    func test_openingAtOwnPlace_writesNothing() throws {
+        let ctx = try makeContext()
+        ReadingProgressStore.save(ao3Id: 42, anchor: ReadingAnchor(chapter: 12, paragraph: 4),
+                                  title: "T", author: "A", in: ctx)
+        let savedAt = try XCTUnwrap(ctx.fetch(FetchDescriptor<ReadingProgress>()).first?.updatedAt)
+        let older = WidgetStoryProgress(id: 42, title: "T", author: "A", progress: 0.1,
+                                        chapter: 3, paragraph: 0, updatedAt: savedAt.addingTimeInterval(-60))
+        for entry in [older, WidgetStoryProgress(id: 42, title: "T", author: "A", progress: 0.5,
+                                                 chapter: 12, paragraph: 4, updatedAt: savedAt)] {
+            XCTAssertEqual(ReadingProgressStore.openingAnchor(ao3Id: 42, synced: entry, in: ctx),
+                           ReadingAnchor(chapter: 12, paragraph: 4))
+            XCTAssertEqual(try ctx.fetch(FetchDescriptor<ReadingProgress>()).first?.updatedAt, savedAt)
+        }
+    }
+
     // MARK: - Reading stats
 
     private func day(_ year: Int, _ month: Int, _ dayOfMonth: Int) -> Date {

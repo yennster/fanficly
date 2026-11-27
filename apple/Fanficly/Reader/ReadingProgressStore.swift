@@ -17,14 +17,65 @@ enum ReadingProgressStore {
     /// it opens.
     @MainActor
     static func openingAnchor(ao3Id: Int, in context: ModelContext) -> ReadingAnchor? {
+        openingAnchor(ao3Id: ao3Id, synced: FanficlyApp.isDemoMode ? nil : WidgetProgressStore.load(), in: context)
+    }
+
+    /// `openingAnchor(ao3Id:in:)` with the synced entry passed in (tests).
+    /// When the synced entry wins, this device takes it as its own record
+    /// (#337): the `ReadingProgress` row and the saved work's `lastRead*` move
+    /// to the synced place, stamped with the synced entry's own date, not now.
+    /// So the Library row shows it, a later open finds it after the other
+    /// device has read a different story (the synced entry holds only one),
+    /// and it isn't stamped as newer than it is: the backup merge, which keeps
+    /// the newer `updatedAt`, still orders it correctly.
+    @MainActor
+    static func openingAnchor(ao3Id: Int, synced: WidgetStoryProgress?, in context: ModelContext) -> ReadingAnchor? {
         let descriptor = FetchDescriptor<ReadingProgress>(predicate: #Predicate { $0.ao3Id == ao3Id })
         let rec = (try? context.fetch(descriptor))?.first
-        return OpeningProgressPolicy.anchor(
-            workId: ao3Id,
-            local: rec.map { ReadingAnchor(chapter: $0.chapterIndex, paragraph: $0.paragraphIndex) },
-            localUpdatedAt: rec?.updatedAt,
-            synced: FanficlyApp.isDemoMode ? nil : WidgetProgressStore.load()
-        )
+        let local = rec.map { ReadingAnchor(chapter: $0.chapterIndex, paragraph: $0.paragraphIndex) }
+        let anchor = OpeningProgressPolicy.anchor(
+            workId: ao3Id, local: local, localUpdatedAt: rec?.updatedAt, synced: synced)
+        if let entry = OpeningProgressPolicy.adoptedEntry(
+            workId: ao3Id, hasLocal: rec != nil, localUpdatedAt: rec?.updatedAt, synced: synced),
+           let anchor, let syncedAt = entry.updatedAt {
+            adopt(entry, anchor: anchor, at: syncedAt, record: rec, in: context)
+        }
+        return anchor
+    }
+
+    /// Writes a synced place into this device's records with its own date.
+    /// Nothing else a save does: the synced entry already holds it (no
+    /// `WidgetProgressStore` write) and nothing was read here (no streak day).
+    @MainActor
+    private static func adopt(_ entry: WidgetStoryProgress, anchor: ReadingAnchor, at syncedAt: Date,
+                              record: ReadingProgress?, in context: ModelContext) {
+        let ao3Id = entry.id
+        if let record {
+            record.chapterIndex = anchor.chapter
+            record.paragraphIndex = anchor.paragraph
+            if !entry.title.isEmpty { record.title = entry.title }
+            if !entry.author.isEmpty { record.author = entry.author }
+            record.updatedAt = syncedAt
+        } else {
+            context.insert(ReadingProgress(
+                ao3Id: ao3Id,
+                chapterIndex: anchor.chapter,
+                paragraphIndex: anchor.paragraph,
+                title: entry.title,
+                author: entry.author,
+                updatedAt: syncedAt
+            ))
+        }
+
+        let workDescriptor = FetchDescriptor<Work>(predicate: #Predicate { $0.ao3Id == ao3Id })
+        if let work = (try? context.fetch(workDescriptor))?.first,
+           work.lastReadAt.map({ $0 < syncedAt }) ?? true {
+            work.lastReadAt = syncedAt
+            work.lastReadChapter = anchor.chapter
+            work.lastReadProgress = entry.clampedProgress
+        }
+
+        try? context.save()
     }
 
     @MainActor
@@ -107,6 +158,24 @@ enum OpeningProgressPolicy {
             widgetFreshness: matching?.freshnessDate,
             existingUpdatedAt: local == nil ? nil : localUpdatedAt
         ) ?? local
+    }
+
+    /// The synced entry this device takes as its own record when it opens the
+    /// work there (#337): the one `anchor` opens at, when it is dated. An
+    /// undated entry opens (with no local place) but isn't written, since it
+    /// has no date of its own to keep.
+    static func adoptedEntry(
+        workId: Int,
+        hasLocal: Bool,
+        localUpdatedAt: Date?,
+        synced: WidgetStoryProgress?
+    ) -> WidgetStoryProgress? {
+        guard let entry = synced, entry.id == workId, entry.chapter != nil,
+              let syncedAt = entry.updatedAt else { return nil }
+        if hasLocal {
+            guard let localUpdatedAt, syncedAt > localUpdatedAt else { return nil }
+        }
+        return entry
     }
 }
 
