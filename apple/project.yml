@@ -50,6 +50,9 @@ targets:
       - path: Fanficly
         excludes:
           - "**/.DS_Store"
+      # What's New (#422): the changelog both apps share, at the repo root.
+      - path: ../changelog/whats-new.json
+        buildPhase: resources
     resources:
       - path: Fanficly/Resources
         optional: true
@@ -322,7 +325,7 @@ schemes:
     test:
       targets:
         - name: FanficlyUITests
-          selectedTests: [ReaderLayoutTests, NonReaderAccessibilityTests]
+          selectedTests: [ReaderLayoutTests, NonReaderAccessibilityTests, WhatsNewScreenshotTests]
   # ScreenshotTests alone: the store art, in Xcode Cloud
   # (bin/xcode-cloud-store-art.py).
   FanficlyScreenshots:

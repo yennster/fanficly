@@ -10,6 +10,7 @@ struct SettingsView: View {
         case blockedTerms
         case contentPolicy
         case privacy
+        case whatsNew
     }
 
     @Environment(AuthState.self) private var auth
@@ -263,6 +264,11 @@ struct SettingsView: View {
             }
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.shortVersionString)
+                // Every release's highlights (#422), the same text the
+                // pop-up after an update shows.
+                NavigationLink(value: SettingsRoute.whatsNew) {
+                    Label("What's New", systemImage: "sparkles")
+                }
                 Link(destination: URL(string: "https://github.com/yennster/fanficly")!) {
                     Label("Source on GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
                 }
@@ -300,6 +306,8 @@ struct SettingsView: View {
                 ContentPolicyView()
             case .privacy:
                 PrivacyTransparencyView()
+            case .whatsNew:
+                WhatsNewHistoryView()
             }
         }
         .onAppear {

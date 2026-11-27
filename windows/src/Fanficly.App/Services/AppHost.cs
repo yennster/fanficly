@@ -20,6 +20,10 @@ public static partial class AppHost
     /// <summary>"-demoLongChapters": demo chapters long enough for a full page mid-chapter.</summary>
     public static bool IsDemoLongChapters { get; } = Environment.GetCommandLineArgs().Contains("-demoLongChapters");
 
+    /// <summary>"-demoWhatsNew" (demo mode, the screenshot tests): the What's New
+    /// dialog at launch with the changelog's newest entry, drafted or not.</summary>
+    public static bool IsDemoWhatsNew { get; } = IsDemoMode && Environment.GetCommandLineArgs().Contains("-demoWhatsNew");
+
     /// <summary>"-iconGallery" opens a page of every icon (UI tests check the icon font).</summary>
     public static bool IsIconGallery { get; } = Environment.GetCommandLineArgs().Contains("-iconGallery");
 

@@ -851,6 +851,16 @@
         }
       }
     },
+    "What's New" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What's New"
+          }
+        }
+      }
+    },
     "What's stored on your device" : {
       "localizations" : {
         "en" : {

@@ -61,6 +61,12 @@ struct RootView: View {
     /// handoff doesn't replace it (#292).
     @State private var linkOpenedThisLaunch = false
     @State private var statusBar = StatusBarVisibility()
+    /// What's New after an update (#422).
+    @State private var whatsNewRelease: WhatsNewRelease?
+    @State private var showWhatsNewHistory = false
+    /// A link, file, Spotlight result, notification or shortcut opened
+    /// something this launch, so What's New waits for the next one.
+    @State private var openedContentThisLaunch = false
 
     var body: some View {
         let scale = CGFloat(UIZoom.clamped(zoomScale))
@@ -231,6 +237,7 @@ struct RootView: View {
                 Task { @MainActor in actions.forEach { $0() } }
             }
             .onOpenURL { url in
+                openedContentThisLaunch = true
                 runAfterAgeGate { handleIncomingURL(url) }
             }
             // A tapped Spotlight result (`work-<id>`, from
@@ -238,6 +245,7 @@ struct RootView: View {
             .onContinueUserActivity(CSSearchableItemActionType) { activity in
                 guard let identifier = activity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
                       let workId = WorkPersistence.workId(fromSpotlightIdentifier: identifier) else { return }
+                openedContentThisLaunch = true
                 runAfterAgeGate { openResumeRoute(ResumeWorkRoute(workId: workId, anchor: nil)) }
             }
             // A fanficly.app work link (#292), as a universal link: the link the
@@ -245,6 +253,7 @@ struct RootView: View {
             // it is, at the link's chapter if it names one.
             .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
                 guard let url = activity.webpageURL, let link = WorkLink(url: url) else { return }
+                openedContentThisLaunch = true
                 // The link the reader just tapped wins over the clip's handoff.
                 linkOpenedThisLaunch = true
                 _ = ClipHandoff.take()
@@ -265,11 +274,67 @@ struct RootView: View {
                     openResumeRoute(ResumeWorkRoute(workId: workId, anchor: nil))
                 }
             }
+            // What's New (#422), once, the first launch after an update. A
+            // fresh install only notes the newest release as seen (the 17+
+            // confirmation wasn't given before this launch), and a launch
+            // that opened a story, a link, a file or a search waits for the
+            // next plain launch. The wait lets a widget, notification, link
+            // or the clip's handoff land first. The release counts as seen
+            // only once the sheet is on screen, so one that couldn't present
+            // (another alert was up) shows next time.
+            .task {
+                // -demoWhatsNew (UI tests' screenshots only): the newest entry,
+                // drafted or not, with nothing recorded as seen.
+                if FanficlyApp.isDemoMode, ProcessInfo.processInfo.arguments.contains("-demoWhatsNew") {
+                    try? await Task.sleep(for: .seconds(1))
+                    whatsNewRelease = WhatsNew.allReleases.first
+                    return
+                }
+                guard !FanficlyApp.isDemoMode, !FanficlyApp.isTestMode, !WhatsNewLaunch.checked else { return }
+                WhatsNewLaunch.checked = true
+                let defaults = UserDefaults.standard
+                let isExistingUser = defaults.bool(forKey: ContentControl.ageConfirmedKey)
+                let newest = WhatsNew.releases.first
+                let lastSeen = defaults.string(forKey: WhatsNew.lastSeenKey)
+                if case .record(let version) = WhatsNew.launchDecision(newest: newest, lastSeen: lastSeen,
+                                                                     isExistingUser: isExistingUser,
+                                                                     openedIntoContent: false) {
+                    defaults.set(version, forKey: WhatsNew.lastSeenKey)
+                    return
+                }
+                try? await Task.sleep(for: .seconds(2))
+                let openedIntoContent = openedContentThisLaunch || !detailPath.isEmpty
+                    || pendingResumeRoute != nil || pendingNotificationRoute != nil || pendingFolderRoute != nil
+                    || importingWorkId != nil || linkOpenedThisLaunch || !afterAgeGate.isEmpty || showNotAWorkLink
+                if case .show(let release) = WhatsNew.launchDecision(newest: newest, lastSeen: lastSeen,
+                                                                    isExistingUser: isExistingUser,
+                                                                    openedIntoContent: openedIntoContent) {
+                    whatsNewRelease = release
+                }
+            }
+            .overlay {
+                if let release = whatsNewRelease {
+                    WhatsNewCard(release: release,
+                                 onContinue: { withAnimation { whatsNewRelease = nil } },
+                                 onSeeAll: {
+                                     withAnimation { whatsNewRelease = nil }
+                                     showWhatsNewHistory = true
+                                 })
+                    .onAppear {
+                        guard !FanficlyApp.isDemoMode else { return }
+                        UserDefaults.standard.set(release.version, forKey: WhatsNew.lastSeenKey)
+                    }
+                }
+            }
+            .sheet(isPresented: $showWhatsNewHistory) {
+                WhatsNewHistorySheet()
+            }
             // The "Continue Reading" App Shortcut. `initial: true` catches a run
             // that launched the app before this view existed.
             .onChange(of: ContinueReadingRouter.shared.pendingRequest, initial: true) { _, pending in
                 guard pending else { return }
                 ContinueReadingRouter.shared.pendingRequest = false
+                openedContentThisLaunch = true
                 runAfterAgeGate { openContinueReading() }
             }
             // `initial: true` catches a tap that cold-launched the app and
@@ -277,6 +342,7 @@ struct RootView: View {
             .onChange(of: NotificationRouter.shared.pendingRoute, initial: true) { _, route in
                 guard let route else { return }
                 NotificationRouter.shared.pendingRoute = nil
+                openedContentThisLaunch = true
                 runAfterAgeGate { openNotificationRoute(route) }
             }
             // The rating prompt, shown just after a reader closes on a finished

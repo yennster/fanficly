@@ -1,0 +1,177 @@
+{
+  "about": "What's New in every Fanficly app: the pop-up after an update and Settings > About > What's New. Newest release first. Each release has a few short themes (an icon, a title, one line). A theme with \"platforms\" shows only in those apps (\"apple\" = iPhone, iPhone Duo, iPad and Mac; \"windows\"); one without shows everywhere. \"icon\" is an SF Symbol name the Windows app also maps (windows/src/Fanficly.App/UI/Symbols.cs). The release workflow's store notes come from the newest entry (apple/bin/release-notes.py). See changelog/README.md.",
+  "releases": [
+    {
+      "version": "1.14.0",
+      "themes": [
+        { "icon": "magnifyingglass", "title": "Find in this story", "detail": "Search the words of the story you're reading and jump straight to a match." },
+        { "icon": "textformat", "title": "Reading, your way", "detail": "Text follows your system size and Bold Text up to 60 pt, author's notes show, and Listen picks a voice for the story's language.", "platforms": ["apple"] },
+        { "icon": "speaker.wave.2", "title": "Listen in any language", "detail": "Listen picks a voice for the story's language.", "platforms": ["windows"] },
+        { "icon": "bell", "title": "Never miss a chapter", "detail": "New chapters are checked while Fanficly is open, and Subscriptions lists the stories and authors you follow.", "platforms": ["apple"] },
+        { "icon": "books.vertical", "title": "Library and Search", "detail": "Pick a fandom in Search's Filters, export saved stories offline, and undo a one-tap delete." },
+        { "icon": "square.and.arrow.up", "title": "Shared links", "detail": "A shared AO3 link opens its story, and fanficly.app links open in an App Clip, no install needed.", "platforms": ["apple"] },
+        { "icon": "square.and.arrow.up", "title": "Shared links", "detail": "A shared AO3 link opens its story, with Cancel while it loads.", "platforms": ["windows"] },
+        { "icon": "checkmark.circle", "title": "Steadier", "detail": "Your sign-in and synced settings stay put, and error messages stay up until you close them.", "platforms": ["windows"] }
+      ]
+    },
+    {
+      "version": "1.13.0",
+      "date": "2026-11-02",
+      "themes": [
+        { "icon": "arrow.down.doc", "title": "Import and export", "detail": "Import EPUB files to read offline, and move your whole library to another device as a file." },
+        { "icon": "book", "title": "A calmer reader", "detail": "The controls show and hide like Apple Books, the volume buttons can turn pages, and long one-shots open without freezing.", "platforms": ["apple"] },
+        { "icon": "book", "title": "Reader", "detail": "The volume buttons can turn pages, and you can see every story in a series and go straight to the next one.", "platforms": ["windows"] },
+        { "icon": "bell", "title": "More alerts", "detail": "Get an alert when a new story matches a saved search, and subscribe to a story on AO3 from its options menu." },
+        { "icon": "magnifyingglass", "title": "Spotlight and Siri", "detail": "Spotlight finds every story in your Library, and Continue Reading works with Siri, Shortcuts and the Action button.", "platforms": ["apple"] },
+        { "icon": "checkmark.circle", "title": "Fewer surprises", "detail": "Clearer error messages, signing out really signs you out, and reading progress never goes backwards." }
+      ]
+    },
+    {
+      "version": "1.12.0",
+      "date": "2026-10-25",
+      "themes": [
+        { "icon": "gamecontroller", "title": "Page turners", "detail": "Turn pages with a Bluetooth page turner or scroll remote." },
+        { "icon": "lock", "title": "Private widgets", "detail": "Widgets hide story details while your device is locked.", "platforms": ["apple"] },
+        { "icon": "bell", "title": "Smarter author alerts", "detail": "An old work a followed author updates no longer shows up as new." },
+        { "icon": "checkmark.circle", "title": "Sturdier", "detail": "Backups, restores and your settings file are more reliable, and saving no longer stalls at launch.", "platforms": ["windows"] },
+        { "icon": "arrow.up.left.and.arrow.down.right", "title": "Leaving full screen", "detail": "A visible button takes you out of full screen in the reader.", "platforms": ["apple"] }
+      ]
+    },
+    {
+      "version": "1.11.1",
+      "date": "2026-10-23",
+      "themes": [
+        { "icon": "rectangle.split.3x1", "title": "iPhone Duo", "detail": "Fanficly fills both of the iPhone Duo's screens again, with the sidebar, two-page spreads and the fold as the gutter.", "platforms": ["apple"] },
+        { "icon": "icloud", "title": "Sync you can trust", "detail": "Each device keeps its own reader settings, deletes stay deleted, and progress never moves backwards.", "platforms": ["apple"] }
+      ]
+    },
+    {
+      "version": "1.11.0",
+      "date": "2026-10-19",
+      "themes": [
+        { "icon": "bookmark", "title": "More of your AO3", "detail": "Marked for Later, AO3 History, kudos, and creating and editing AO3 bookmarks." },
+        { "icon": "note.text", "title": "Make it yours", "detail": "Notes and personal tags on any saved story, your own tag and author blocklist, and a yearly reading goal." },
+        { "icon": "clock", "title": "At a glance", "detail": "Search results show whether you've read a story, and each story shows a reading-time estimate at your pace." },
+        { "icon": "speaker.wave.2", "title": "Listen anywhere", "detail": "Listen keeps reading in the background and on to the next chapter." },
+        { "icon": "textformat.size", "title": "Sized for you", "detail": "Change the size of the whole app, and screens hold up at the largest text sizes." }
+      ]
+    },
+    {
+      "version": "1.10.1",
+      "date": "2026-10-10",
+      "platforms": ["apple"],
+      "themes": [
+        { "icon": "book.pages", "title": "Pages fill the screen", "detail": "Every page runs to its last line, and hiding the controls gives the page the whole screen." },
+        { "icon": "checkmark.circle", "title": "Fixes", "detail": "The page footer stays put, and iPhone Duo's full screen and profiles work as they should." }
+      ]
+    },
+    {
+      "version": "1.10.0",
+      "date": "2026-10-08",
+      "platforms": ["apple"],
+      "themes": [
+        { "icon": "book.pages", "title": "Read like a book", "detail": "Two pages side by side on wide screens, with their own margins, turning two at a time." },
+        { "icon": "rectangle.split.3x1", "title": "Made for iPhone Duo", "detail": "Fold or unfold and you stay on the same paragraph, with the fold as the spine." }
+      ]
+    },
+    {
+      "version": "1.9.0",
+      "date": "2026-10-07",
+      "platforms": ["apple"],
+      "themes": [
+        { "icon": "magnifyingglass", "title": "Search, rebuilt", "detail": "Your words go straight to AO3, with live tag suggestions and a Filters panel. Nothing is guessed." },
+        { "icon": "books.vertical", "title": "Sort your Library", "detail": "By date saved, last read, last updated, title, author or length." },
+        { "icon": "bell", "title": "Taps that land", "detail": "Notifications and widgets open the story they're about." }
+      ]
+    },
+    {
+      "version": "1.8.0",
+      "date": "2026-08-28",
+      "platforms": ["apple"],
+      "themes": [
+        { "icon": "person.wave.2", "title": "VoiceOver throughout", "detail": "Every control is labeled, and page turns and chapter jumps are VoiceOver actions." },
+        { "icon": "icloud", "title": "Automatic iCloud sync", "detail": "Your library merges from iCloud when the app opens, and a new device offers to re-download your stories." }
+      ]
+    },
+    {
+      "version": "1.7.0",
+      "date": "2026-07-09",
+      "platforms": ["apple"],
+      "themes": [
+        { "icon": "photo", "title": "Story images", "detail": "Show the images in stories, if you turn it on in Settings." },
+        { "icon": "checkmark.circle", "title": "Reliability", "detail": "Fewer AO3 timeouts, safer iCloud backups, and more dependable notifications." }
+      ]
+    },
+    {
+      "version": "1.6.0",
+      "date": "2026-06-27",
+      "platforms": ["apple"],
+      "themes": [
+        { "icon": "chart.bar.xaxis", "title": "Stats", "detail": "Stories finished, time and words read, your streak, and your top fandoms, ships and authors." },
+        { "icon": "sparkles", "title": "Year in Review", "detail": "A shareable wrap-up card, made on your device." }
+      ]
+    },
+    {
+      "version": "1.5.1",
+      "date": "2026-06-23",
+      "platforms": ["apple"],
+      "themes": [
+        { "icon": "paintpalette", "title": "A fresh look", "detail": "A new app icon and an indigo theme." },
+        { "icon": "speaker.wave.2", "title": "Jump chapters while listening", "detail": "Listen has a chapter picker and starts from your exact place." }
+      ]
+    },
+    {
+      "version": "1.5.0",
+      "date": "2026-06-18",
+      "platforms": ["apple"],
+      "themes": [
+        { "icon": "flame", "title": "Popular", "detail": "The top fandoms, ships and characters on AO3." },
+        { "icon": "bubble.left.and.bubble.right", "title": "Comments", "detail": "Read each chapter's comments, and post your own when signed in." },
+        { "icon": "person.2", "title": "Followed authors and bookmarks", "detail": "Get an alert when an author you follow posts, and browse your AO3 bookmarks." }
+      ]
+    },
+    {
+      "version": "1.4.0",
+      "date": "2026-06-09",
+      "platforms": ["apple"],
+      "themes": [
+        { "icon": "sparkles", "title": "Now on the Mac", "detail": "Fanficly runs on macOS, with arrow-key page turns." },
+        { "icon": "rectangle.stack", "title": "Widgets", "detail": "Your last-read story on the Home Screen, synced across devices." },
+        { "icon": "textformat", "title": "Reader profiles", "detail": "Save typography presets and switch between them." },
+        { "icon": "folder", "title": "Folders", "detail": "Organize your Library into your own folders." }
+      ]
+    },
+    {
+      "version": "1.0.0",
+      "date": "2026-06-02",
+      "platforms": ["apple"],
+      "themes": [
+        { "icon": "sparkles", "title": "Fanficly 1.0", "detail": "Search and browse AO3, read offline in your own style, and follow stories for new chapters. No account, ads or tracking." }
+      ]
+    },
+    {
+      "version": "0.3.3",
+      "date": "2026-06-01",
+      "platforms": ["apple"],
+      "themes": [
+        { "icon": "clock.arrow.circlepath", "title": "Recently Viewed", "detail": "The stories you've opened, newest first, plus endless scrolling in Search and Browse." }
+      ]
+    },
+    {
+      "version": "0.3.0",
+      "date": "2026-05-31",
+      "platforms": ["apple"],
+      "themes": [
+        { "icon": "line.3.horizontal.decrease.circle", "title": "Saved filters", "detail": "Your saved filters on the Browse home, and a cleaner reader." }
+      ]
+    },
+    {
+      "version": "0.1.0",
+      "date": "2026-05-31",
+      "platforms": ["apple"],
+      "themes": [
+        { "icon": "sparkles", "title": "The first Fanficly", "detail": "An open-source, ad-free AO3 reader for iPhone and iPad." }
+      ]
+    }
+  ]
+}

@@ -69,6 +69,9 @@ public sealed class SettingsScreen : Screen
             [
                 SettingsKit.LinkRow("About Fanficly", () => Navigator.Push(new AboutScreen()), "info.circle",
                     $"Version {AppHost.AppVersion}", automationId: "settings.about"),
+                // Every release's highlights (#422), as the dialog after an update shows them.
+                SettingsKit.LinkRow("What's New", () => Navigator.Push(new WhatsNewScreen()), "sparkles",
+                    automationId: "settings.whatsNew"),
             ]));
         return SettingsKit.Page(page, "settings.list");
     }

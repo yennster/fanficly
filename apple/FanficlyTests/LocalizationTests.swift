@@ -23,6 +23,7 @@ final class LocalizationTests: XCTestCase {
             "Never",
             "Content & Safety",
             "Rate Fanficly on the App Store",
+            "What's New",
             "Library File",
             "Notifications",
             "Open Notification Settings",

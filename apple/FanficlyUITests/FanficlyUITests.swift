@@ -914,3 +914,78 @@ enum DuoHinge {
     }
 }
 #endif
+
+/// Pictures of What's New (#422) for review: the sheet an update shows
+/// (`-demoWhatsNew` puts it up in demo mode with the changelog's newest
+/// entry), the history it opens and the Settings row. Saved beside the reader
+/// layout pictures, so CI uploads them in the same artifact.
+final class WhatsNewScreenshotTests: XCTestCase {
+    private var app: XCUIApplication!
+
+    override func setUpWithError() throws {
+        continueAfterFailure = true
+        app = XCUIApplication()
+        #if !targetEnvironment(macCatalyst)
+        XCUIDevice.shared.orientation = .portrait
+        #endif
+    }
+
+    func test_whatsNew_sheetHistoryAndSettings() throws {
+        app.launchArguments = ["-demoMode", "-demoWhatsNew",
+                               "-AppleLocale", "en_US", "-AppleLanguages", "(en)",
+                               "-app.selectedTabRaw", "library", "-app.zoomScale", "1.0"]
+        app.launch()
+        let cont = app.buttons["whatsNew.continue"].firstMatch
+        XCTAssertTrue(cont.waitForExistence(timeout: 10), "the What's New sheet")
+        usleep(1_000_000)
+        capture("whats-new-1-popup")
+
+        let history = app.buttons["whatsNew.history"].firstMatch
+        for _ in 0..<4 where !(history.exists && history.isHittable) { app.swipeUp() }
+        if history.waitForExistence(timeout: 3) {
+            capture("whats-new-2-popup-end")
+            history.tap()
+            XCTAssertTrue(app.navigationBars["What's New"].waitForExistence(timeout: 5), "the history")
+            usleep(800_000)
+            capture("whats-new-3-history")
+            app.swipeUp()
+            usleep(800_000)
+            capture("whats-new-4-history-older")
+        } else {
+            XCTFail("See All Updates")
+        }
+
+        app.terminate()
+        app.launchArguments = ["-demoMode",
+                               "-AppleLocale", "en_US", "-AppleLanguages", "(en)",
+                               "-app.selectedTabRaw", "settings", "-app.zoomScale", "1.0"]
+        app.launch()
+        if !app.navigationBars["Settings"].waitForExistence(timeout: 8) {
+            let row = app.staticTexts["Settings"].firstMatch
+            for _ in 0..<8 where !(row.exists && row.isHittable) { app.swipeUp() }
+            if row.exists { row.tap() }
+        }
+        let whatsNew = app.buttons["What's New"].firstMatch
+        for _ in 0..<12 where !(whatsNew.exists && whatsNew.isHittable) { app.swipeUp() }
+        usleep(800_000)
+        capture("whats-new-5-settings-row")
+        XCTAssertTrue(whatsNew.exists, "Settings → About → What's New")
+    }
+
+    private func capture(_ name: String) {
+        #if targetEnvironment(macCatalyst)
+        let shot = app.windows.firstMatch.screenshot()
+        #else
+        let shot = XCUIScreen.main.screenshot()
+        #endif
+        let attachment = XCTAttachment(screenshot: shot)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        let repoRoot = ((#filePath as NSString).deletingLastPathComponent as NSString).deletingLastPathComponent
+        let device = UIDevice.current.name.replacingOccurrences(of: " ", with: "-")
+        let folder = (repoRoot as NSString).appendingPathComponent("build/reader-layout-screenshots/\(device)")
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        try? shot.pngRepresentation.write(to: URL(fileURLWithPath: (folder as NSString).appendingPathComponent("\(name).png")))
+    }
+}
