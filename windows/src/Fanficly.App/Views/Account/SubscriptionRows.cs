@@ -73,9 +73,7 @@ internal static class SubscriptionRows
         if (work.IsPinned) Badge("pin.fill", Theme.Accent, "Pinned");
         if (work.IsStarred) Badge("star.fill", Theme.Warning, "Starred");
         if (WorkPersistence.IsDownloaded(work)) Badge("arrow.down.circle.fill", Theme.Success, "Downloaded");
-        badges.VerticalAlignment = VerticalAlignment.Top;
-        badges.Margin = new Thickness(0, 3, 0, 0);
-        titleRow.Children.Add(badges.Col(1));
+        titleRow.Children.Add(UI.UI.CenteredOnFirstLine(badges, Theme.Style.Headline).Col(1));
 
         var stack = UI.UI.VStack(5, titleRow, UI.UI.Secondary($"by {work.AuthorName}", maxLines: UI.UI.LineLimit(1)));
         if (work.Fandoms.Count > 0)
